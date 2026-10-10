@@ -12,6 +12,7 @@ export default defineConfig({
         main: resolve(root, 'index.html'),
         astronomy: resolve(root, 'astronomy.html'),
         sky: resolve(root, 'sky.html'),
+        lunar: resolve(root, 'lunar.html'),
       },
     },
   },

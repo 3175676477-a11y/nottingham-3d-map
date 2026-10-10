@@ -1,9 +1,7 @@
 import { installReleaseNavigation } from './release-navigation.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { geoEquirectangular, geoPath } from 'd3-geo';
-import { merge } from 'topojson-client';
-import landTopology from 'world-atlas/land-50m.json';
+import { makeEarthTexture, makeTileNoise } from './earth-texture.js';
 import { DateTime } from 'luxon';
 import tzlookup from 'tz-lookup';
 import { daylight, sceneDirections, skyState } from './astronomy.js';
@@ -11,7 +9,7 @@ import { createGlobeTexture, createMoonTexture } from './globe-texture.js';
 import './astronomy.css';
 
 const root = document.querySelector('#astronomy-app');
-root.innerHTML = `<main class="observatory"><div id="cosmos"></div><header class="topbar"><div class="astro-brand"><span class="astro-mark">☼</span><div><b>SOLAR ATLAS <i>·</i> 02</b><small>EARTH / MOON / SUN OBSERVATORY</small></div></div><div class="top-coords">EARTH-CENTERED VIEW&nbsp; / &nbsp;HELIOCENTRIC ORBITS</div><a class="back-link" href="./index.html">校园地形图&nbsp; ↗</a></header><section class="hero"><span class="eyebrow">THREE BODIES / ONE SKY</span><h1>Sun, Earth<br><em>&amp; Moon.</em></h1><p>点击地球任意地点，查看当地天空。</p></section><div class="body-label sun-label" id="sun-label">SUN / 太阳</div><div class="body-label earth-label" id="earth-label">EARTH / 地球</div><div class="body-label moon-label" id="moon-label">MOON / 月球</div><aside class="info-card"><div class="card-head"><h2>当地天空</h2><span class="live"><i></i> LIVE SKY</span></div><div class="place" id="place-line">NOTTINGHAM · 52.95°N, 1.15°W</div><div class="rule"></div><div class="section-label">DAYLIGHT / 日照</div><div class="day-row"><div><span class="day-length" id="day-length">--:--</span><span class="day-unit">小时</span></div><div class="rise-set"><div><span>日出</span><b id="sunrise">--:--</b></div><div><span>日落</span><b id="sunset">--:--</b></div></div></div><div class="sky-state"><i id="sky-icon">☼</i><span id="sky-state">正在计算当地天空</span></div><div class="section-label">MOON / 月球观测</div><div class="moon-block"><canvas class="moon-icon" id="phase-icon" width="130" height="130"></canvas><div><div class="moon-phase" id="phase-name">月相</div><div class="moon-meta"><span id="illumination">--</span> 照明&nbsp; · &nbsp;月龄 <span id="moon-age">--</span> 天</div></div></div><div class="moon-position"><div class="compass" id="compass"><b class="n">N</b><b class="e">E</b><b class="s">S</b><b class="w">W</b><i class="moon-dot" id="moon-dot"></i></div><div class="compass-values"><div><span>地平高度 ALT</span><b id="moon-alt">--°</b></div><div><span>地平方位 AZ</span><div class="compass-row"><b id="moon-az">--°</b><b class="moon-pos-name" id="moon-dir">--</b></div></div><div><span>地平状态</span><b id="moon-horizon">--</b></div></div></div><p class="model-note"><strong>比例说明：</strong>天体大小与距离经过视觉夸大；轨道演示方向与天空数值按所选时间计算。月球采用同步自转模型。</p></aside><div class="location-readout">OBSERVER / <strong id="location-label">NOTTINGHAM</strong><br>LAT <span id="lat-label">52.9500°</span>&nbsp;&nbsp; LON <span id="lon-label">−1.1500°</span><br><span id="zone-label">Europe/London</span></div><section class="timeline"><div class="timeline-head"><label>SIMULATION TIME / 观测时间</label><div class="time-edit"><input id="date-time" type="datetime-local" step="60"><div class="transport"><button id="play" aria-label="播放或暂停">▶</button><input id="speed" type="range" min="0" max="3" step="1" value="1" title="时间流速"><select id="speed-select"><option value="3600">1 小时 / 秒</option><option value="86400" selected>1 天 / 秒</option><option value="604800">1 周 / 秒</option><option value="2592000">1 月 / 秒</option></select><button id="now">现在</button></div></div></div></section><div class="help">拖动旋转视角&nbsp; · &nbsp;滚轮缩放&nbsp; · &nbsp;点击地球选择地点</div><a class="source-link" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">LAND : NATURAL EARTH&nbsp; ↗</a></main>`;
+root.innerHTML = `<main class="observatory"><div id="cosmos"></div><header class="topbar"><div class="astro-brand"><span class="astro-mark">☼</span><div><b>SOLAR ATLAS <i>·</i> 02</b><small>EARTH / MOON / SUN OBSERVATORY</small></div></div><div class="top-coords">EARTH-CENTERED VIEW&nbsp; / &nbsp;HELIOCENTRIC ORBITS</div><a class="back-link" href="./index.html">校园地形图&nbsp; ↗</a></header><section class="hero"><span class="eyebrow">THREE BODIES / ONE SKY</span><h1>Sun, Earth<br><em>&amp; Moon.</em></h1><p>点击天体标识切换旋转中心。<br><a id="lunar-entry" href="./lunar.html">站在月球上看天空 ↗</a></p><nav class="focus-switch" aria-label="旋转中心"><button data-focus="sun">太阳</button><button data-focus="earth">地球</button><button data-focus="moon">月球</button></nav></section><button type="button" class="body-label sun-label" id="sun-label" aria-label="围绕太阳旋转">SUN / 太阳</button><button type="button" class="body-label earth-label" id="earth-label" aria-label="围绕地球旋转">EARTH / 地球</button><button type="button" class="body-label moon-label" id="moon-label" aria-label="围绕月球旋转">MOON / 月球</button><aside class="info-card"><div class="card-head"><h2>当地天空</h2><span class="live"><i></i> LIVE SKY</span></div><div class="place" id="place-line">NOTTINGHAM · 52.95°N, 1.15°W</div><div class="rule"></div><div class="section-label">DAYLIGHT / 日照</div><div class="day-row"><div><span class="day-length" id="day-length">--:--</span><span class="day-unit">小时</span></div><div class="rise-set"><div><span>日出</span><b id="sunrise">--:--</b></div><div><span>日落</span><b id="sunset">--:--</b></div></div></div><div class="sky-state"><i id="sky-icon">☼</i><span id="sky-state">正在计算当地天空</span></div><div class="section-label">MOON / 月球观测</div><div class="moon-block"><canvas class="moon-icon" id="phase-icon" width="130" height="130"></canvas><div><div class="moon-phase" id="phase-name">月相</div><div class="moon-meta"><span id="illumination">--</span> 照明&nbsp; · &nbsp;月龄 <span id="moon-age">--</span> 天</div></div></div><div class="moon-position"><div class="compass" id="compass"><b class="n">N</b><b class="e">E</b><b class="s">S</b><b class="w">W</b><i class="moon-dot" id="moon-dot"></i></div><div class="compass-values"><div><span>地平高度 ALT</span><b id="moon-alt">--°</b></div><div><span>地平方位 AZ</span><div class="compass-row"><b id="moon-az">--°</b><b class="moon-pos-name" id="moon-dir">--</b></div></div><div><span>地平状态</span><b id="moon-horizon">--</b></div></div></div><p class="model-note"><strong>比例说明：</strong>天体大小与距离经过视觉夸大；轨道演示方向与天空数值按所选时间计算。月球采用同步自转模型。</p></aside><div class="location-readout">OBSERVER / <strong id="location-label">NOTTINGHAM</strong><br>LAT <span id="lat-label">52.9500°</span>&nbsp;&nbsp; LON <span id="lon-label">−1.1500°</span><br><span id="zone-label">Europe/London</span></div><section class="timeline"><div class="timeline-head"><label>SIMULATION TIME / 观测时间</label><div class="time-edit"><input id="date-time" type="datetime-local" step="60"><div class="transport"><button id="play" aria-label="播放或暂停">▶</button><input id="speed" type="range" min="0" max="3" step="1" value="1" title="时间流速"><select id="speed-select"><option value="3600">1 小时 / 秒</option><option value="86400" selected>1 天 / 秒</option><option value="604800">1 周 / 秒</option><option value="2592000">1 月 / 秒</option></select><button id="now">现在</button></div></div></div></section><div class="help">拖动旋转视角&nbsp; · &nbsp;滚轮缩放&nbsp; · &nbsp;点击地球选择地点</div><a class="source-link" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">LAND : NATURAL EARTH&nbsp; ↗</a></main>`;
 
 installReleaseNavigation('.top-coords');
 
@@ -26,69 +24,11 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false }); ren
 scene.add(new THREE.AmbientLight(0x43516e, .62));
 const sunlight = new THREE.DirectionalLight(0xfff1d6, 3.2); sunlight.position.set(-500, 0, 0); sunlight.target.position.set(0,0,0); scene.add(sunlight, sunlight.target);
 
-const orbitControls = new OrbitControls(camera, renderer.domElement); orbitControls.enableDamping = true; orbitControls.dampingFactor = .055; orbitControls.minDistance = 17; orbitControls.maxDistance = 220; orbitControls.target.copy(initialEarthPosition); orbitControls.autoRotate = false;
-let previousEarthPosition = initialEarthPosition.clone();
+const orbitControls = new OrbitControls(camera, renderer.domElement); orbitControls.enableDamping = true; orbitControls.enablePan = false; orbitControls.dampingFactor = .055; orbitControls.minDistance = 17; orbitControls.maxDistance = 220; orbitControls.target.copy(initialEarthPosition); orbitControls.autoRotate = false;
+let focusName = "earth";
+let previousFocusPosition = initialEarthPosition.clone();
 const body = { sun: null, earthCarrier: new THREE.Group(), earthSpin: new THREE.Group(), earthSurface: null, earthClouds: null, moon: new THREE.Group(), moonSurface: null, marker: new THREE.Group(), sunGlow: null };
 const earthRadius = 6, sunRadius = 4.2, moonRadius = 1.45, moonOrbitRadius = 10.5;
-
-function makeTileNoise(columns, rows, seed) {
-  let state = seed; const values = new Float32Array(columns * rows);
-  for (let i = 0; i < values.length; i++) { state = (state * 16807) % 2147483647; values[i] = state / 2147483647; }
-  const fade = n => n * n * (3 - 2 * n);
-  return (u, v) => {
-    const x = ((u % 1) + 1) % 1 * columns, y = ((v % 1) + 1) % 1 * rows;
-    const x0 = Math.floor(x), y0 = Math.floor(y), fx = fade(x - x0), fy = fade(y - y0);
-    const at = (dx, dy) => values[((y0 + dy) % rows) * columns + (x0 + dx) % columns];
-    const top = at(0, 0) * (1 - fx) + at(1, 0) * fx, bottom = at(0, 1) * (1 - fx) + at(1, 1) * fx;
-    return top * (1 - fy) + bottom * fy;
-  };
-}
-
-function makeEarthTexture() {
-  const width = 2048, height = 1024, canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  const land = merge(landTopology, landTopology.objects.land.geometries);
-  const projection = geoEquirectangular().scale(width / (2 * Math.PI)).translate([width / 2, height / 2]);
-  const path = geoPath(projection, ctx);
-  // Use the bundled Natural Earth coastline as the geographic base, then
-  // shade land into broad climate/terrain regions with fine-scale relief.
-  // This avoids the visible atlas grid and flat, single-color continents.
-  const mask = document.createElement('canvas'); mask.width = width; mask.height = height;
-  const maskCtx = mask.getContext('2d'); maskCtx.fillStyle = '#fff'; maskCtx.beginPath(); geoPath(projection, maskCtx)(land); maskCtx.fill();
-  const landMask = maskCtx.getImageData(0, 0, width, height).data;
-  const image = ctx.createImageData(width, height); const data = image.data;
-  const broadNoise = makeTileNoise(22, 11, 68131), midNoise = makeTileNoise(70, 35, 93817), fineNoise = makeTileNoise(220, 110, 41239);
-  for (let y = 0; y < height; y++) {
-    const v = y / height, latitude = 90 - v * 180, absLat = Math.abs(latitude);
-    for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4;
-      const u = x / width, broad = broadNoise(u, v), mid = midNoise(u, v), fine = fineNoise(u, v);
-      const ocean = landMask[i] < 100;
-      let color;
-      if (ocean) {
-        // Keep open water almost uniform: a very soft, isotropic variation
-        // reads as ocean depth without producing latitude-like stripes.
-        const depth = (broad - .5) * 5 + (mid - .5) * 2 + (fine - .5);
-        color = [Math.round(14 + depth * .65), Math.round(43 + depth * 1.2), Math.round(70 + depth * 1.8)];
-      } else {
-        const aridity = (broad - .5) * .86 + (mid - .5) * .68;
-        let base;
-        if (absLat > 70) base = [190, 193, 177];
-        else if (absLat < 27 && aridity > .17) base = [157, 139, 94];
-        else if (absLat < 12) base = [57, 111, 71];
-        else if (aridity > .36) base = [143, 137, 98];
-        else if (aridity < -.24) base = [73, 112, 77];
-        else base = [111, 130, 88];
-        const relief = (broad - .5) * 14 + (mid - .5) * 12 + (fine - .5) * 8;
-        color = base.map((value, c) => Math.max(0, Math.min(255, Math.round(value + relief * (c === 2 ? .7 : 1)))));
-      }
-      data[i] = color[0]; data[i + 1] = color[1]; data[i + 2] = color[2]; data[i + 3] = 255;
-    }
-  }
-  ctx.putImageData(image, 0, 0);
-  ctx.beginPath(); path(land); ctx.strokeStyle = 'rgba(202,205,169,.55)'; ctx.lineWidth = .8; ctx.stroke();
-  return createGlobeTexture(canvas, renderer.capabilities.getMaxAnisotropy());
-}
 
 function makeCloudTexture() {
   const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 512; const ctx = canvas.getContext('2d');
@@ -111,7 +51,7 @@ body.sun = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffcf75 
 const glowCanvas=document.createElement('canvas');glowCanvas.width=glowCanvas.height=256;const gctx=glowCanvas.getContext('2d');const glow=gctx.createRadialGradient(128,128,12,128,128,128);glow.addColorStop(0,'rgba(255,215,143,.65)');glow.addColorStop(.2,'rgba(255,177,72,.3)');glow.addColorStop(1,'rgba(255,143,48,0)');gctx.fillStyle=glow;gctx.fillRect(0,0,256,256);body.sunGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(glowCanvas),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));body.sunGlow.scale.set(24,24,1);body.sunGlow.position.set(0,0,0);scene.add(body.sunGlow);
 
 body.earthCarrier.add(body.earthSpin);scene.add(body.earthCarrier);
-body.earthSurface=new THREE.Mesh(new THREE.SphereGeometry(earthRadius,112,80),new THREE.MeshStandardMaterial({map:makeEarthTexture(),roughness:.72,metalness:.015}));body.earthSurface.userData.selectable=true;body.earthSpin.add(body.earthSurface);
+body.earthSurface=new THREE.Mesh(new THREE.SphereGeometry(earthRadius,112,80),new THREE.MeshStandardMaterial({map:makeEarthTexture(renderer.capabilities.getMaxAnisotropy()),roughness:.72,metalness:.015}));body.earthSurface.userData.selectable=true;body.earthSpin.add(body.earthSurface);
 body.earthClouds=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.012,96,64),new THREE.MeshLambertMaterial({map:makeCloudTexture(),transparent:true,opacity:.08,depthWrite:false}));body.earthSpin.add(body.earthClouds);
 const atmosphere=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.035,64,48),new THREE.MeshBasicMaterial({color:0x5bb8ef,transparent:true,opacity:.075,side:THREE.BackSide,blending:THREE.AdditiveBlending}));body.earthSpin.add(atmosphere);
 body.marker.add(new THREE.Mesh(new THREE.SphereGeometry(.19,20,14),new THREE.MeshBasicMaterial({color:0xffd073})));const markerRing=new THREE.Mesh(new THREE.TorusGeometry(.32,.025,8,32),new THREE.MeshBasicMaterial({color:0xffd073}));markerRing.rotation.x=Math.PI/2;body.marker.add(markerRing);body.earthSpin.add(body.marker);
@@ -163,9 +103,28 @@ renderer.domElement.addEventListener('click',e=>{if(!pointerDown||Math.hypot(e.c
 
 function sceneDirToVector(d){return new THREE.Vector3(d.x,d.y,d.z).normalize();}
 const cameraLabels=[['sun-label',body.sun],['earth-label',body.earthCarrier],['moon-label',body.moon]];
-function updateLabel(id,obj){const el=document.getElementById(id),point=obj.getWorldPosition(new THREE.Vector3());point.project(camera);if(point.z>1){el.style.opacity='0';return;}el.style.opacity='1';el.style.left=`${(point.x*.5+.5)*innerWidth}px`;el.style.top=`${(-point.y*.5+.5)*innerHeight-25}px`;}
-function render(now){requestAnimationFrame(render);const dt=Math.min((now-(render.last||now))/1000,.05);render.last=now;if(playing)currentTime=new Date(currentTime.getTime()+dt*Number(speedSelect.value)*1000);const directions=sceneDirections(currentTime);const earthDir=sceneDirToVector(directions.earthFromSun);body.earthCarrier.position.copy(earthDir).multiplyScalar(earthOrbitRadius);const focusShift=body.earthCarrier.position.clone().sub(previousEarthPosition);camera.position.add(focusShift);orbitControls.target.add(focusShift);previousEarthPosition.copy(body.earthCarrier.position);body.earthSpin.rotation.y=(directions.siderealSpin+90)*Math.PI/180;body.earthClouds.rotation.y=-body.earthSpin.rotation.y*.08;
+function focusBody() { return focusName === 'earth' ? body.earthCarrier : body[focusName]; }
+function setFocus(name) {
+  const direction = camera.position.clone().sub(orbitControls.target).normalize();
+  focusName = name;
+  const target = focusBody().getWorldPosition(new THREE.Vector3());
+  const radius = { sun: sunRadius, earth: earthRadius, moon: moonRadius }[name];
+  orbitControls.minDistance = radius * 1.6;
+  orbitControls.target.copy(target); camera.position.copy(target).addScaledVector(direction, radius * 6);
+  previousFocusPosition.copy(target); orbitControls.update();
+  cameraLabels.forEach(([id]) => document.getElementById(id).setAttribute('aria-pressed', String(id === name + '-label')));
+  document.querySelector('.help').textContent = '当前围绕' + {sun:'太阳',earth:'地球',moon:'月球'}[name] + '旋转 · 拖动旋转 · 滚轮缩放 · 点击地球表面进入当地天空';
+}
+for (const name of ['sun', 'earth', 'moon']) document.getElementById(name + '-label').addEventListener('click', () => setFocus(name));
+document.querySelectorAll('[data-focus]').forEach(el => el.addEventListener('click', () => setFocus(el.dataset.focus)));
+document.getElementById('earth-label').setAttribute('aria-pressed', 'true');
+function updateLabel(id,obj){const el=document.getElementById(id),point=obj.getWorldPosition(new THREE.Vector3());point.project(camera);if(point.z>1){el.style.visibility='hidden';return;}el.style.visibility='visible';el.style.opacity='1';el.style.left=`${(point.x*.5+.5)*innerWidth}px`;el.style.top=`${(-point.y*.5+.5)*innerHeight-25}px`;}
+function render(now){requestAnimationFrame(render);const dt=Math.min((now-(render.last||now))/1000,.05);render.last=now;if(playing)currentTime=new Date(currentTime.getTime()+dt*Number(speedSelect.value)*1000);const directions=sceneDirections(currentTime);const earthDir=sceneDirToVector(directions.earthFromSun);body.earthCarrier.position.copy(earthDir).multiplyScalar(earthOrbitRadius);body.earthSpin.rotation.y=(directions.siderealSpin+90)*Math.PI/180;body.earthClouds.rotation.y=-body.earthSpin.rotation.y*.08;
   const moonDir=sceneDirToVector(directions.moonFromEarth);body.moon.position.copy(body.earthCarrier.position).add(moonDir.multiplyScalar(moonOrbitRadius));body.moon.rotation.set(0,0,0);const facingEarth=body.earthCarrier.position.clone().sub(body.moon.position).normalize();body.moonSurface.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),facingEarth);
+const focusPosition = focusBody().getWorldPosition(new THREE.Vector3());
+  const focusShift = focusPosition.clone().sub(previousFocusPosition);
+  camera.position.add(focusShift); orbitControls.target.add(focusShift); previousFocusPosition.copy(focusPosition);
+  document.querySelector('#lunar-entry').href = './lunar.html?time=' + encodeURIComponent(currentTime.toISOString());
 // DirectionalLight's position points toward its source. Put that source on
   // Earth's sunward side so the lit hemisphere faces the Sun.
   const sunlightFrom=earthDir.clone().multiplyScalar(-200);sunlight.position.copy(sunlightFrom);sunlight.target.position.set(0,0,0);sunlight.target.updateMatrixWorld();
