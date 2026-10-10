@@ -113,8 +113,7 @@ const sunGeo = new THREE.SphereGeometry(sunRadius, 48, 48);
 body.sun = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffcf75 })); scene.add(body.sun);
 const glowCanvas=document.createElement('canvas');glowCanvas.width=glowCanvas.height=256;const gctx=glowCanvas.getContext('2d');const glow=gctx.createRadialGradient(128,128,12,128,128,128);glow.addColorStop(0,'rgba(255,215,143,.65)');glow.addColorStop(.2,'rgba(255,177,72,.3)');glow.addColorStop(1,'rgba(255,143,48,0)');gctx.fillStyle=glow;gctx.fillRect(0,0,256,256);body.sunGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(glowCanvas),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));body.sunGlow.scale.set(24,24,1);body.sunGlow.position.set(0,0,0);scene.add(body.sunGlow);
 
-const orbitPoints=[];for(let i=0;i<=320;i++){const a=i/320*Math.PI*2;const ecl=new THREE.Vector3(Math.cos(a)*earthOrbitRadius,Math.sin(a)*earthOrbitRadius,0);orbitPoints.push(new THREE.Vector3(ecl.x,ecl.y*Math.cos(23.439* Math.PI/180),-ecl.y*Math.sin(23.439*Math.PI/180)));}
-const orbitLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(orbitPoints),new THREE.LineDashedMaterial({color:0x65738b,dashSize:.65,gapSize:.7,transparent:true,opacity:.48}));orbitLine.computeLineDistances();scene.add(orbitLine);
+// Keep orbit geometry off the globe face: from an Earth-centered camera its projected arc can resemble a surface stripe.
 body.earthCarrier.add(body.earthSpin);scene.add(body.earthCarrier);
 body.earthSurface=new THREE.Mesh(new THREE.SphereGeometry(earthRadius,112,80),new THREE.MeshStandardMaterial({map:makeEarthTexture(),roughness:.72,metalness:.015}));body.earthSurface.userData.selectable=true;body.earthSpin.add(body.earthSurface);
 body.earthClouds=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.012,96,64),new THREE.MeshLambertMaterial({map:makeCloudTexture(),transparent:true,opacity:.08,depthWrite:false}));body.earthSpin.add(body.earthClouds);
