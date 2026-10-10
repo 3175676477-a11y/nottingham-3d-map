@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { DateTime } from 'luxon';
 import tzlookup from 'tz-lookup';
 import { daylight, localPosition, moonCoordinates, skyState, sunCoordinates } from './astronomy.js';
+import { createMoonTexture } from './globe-texture.js';
 import './sky.css';
 import './sky-hud.css';
 
@@ -153,14 +154,7 @@ function makeGlow(colorA, colorB) {
 const sunGlow = makeGlow('rgba(255,238,190,.7)','rgba(255,174,75,.32)'); sunGlow.scale.set(34,34,1); scene.add(sunGlow);
 const moonGlow = makeGlow('rgba(226,235,244,.32)','rgba(185,205,227,.12)'); moonGlow.scale.set(23,23,1); scene.add(moonGlow);
 
-function makeMoonTexture() {
-  const canvas = document.createElement('canvas'); canvas.width=1024; canvas.height=512; const c=canvas.getContext('2d');
-  const base=c.createLinearGradient(0,0,1024,512);base.addColorStop(0,'#b8b9b6');base.addColorStop(.5,'#e0ddd1');base.addColorStop(1,'#a8aaa8');c.fillStyle=base;c.fillRect(0,0,1024,512);
-  let seed=24681;const rand=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};
-  for(let i=0;i<1100;i++){const x=rand()*1024,y=rand()*512,r=1+rand()*13;c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fillStyle=`rgba(58,62,66,${.025+rand()*.1})`;c.fill();}
-  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.offset.x=.25;return texture;
-}
-const moon = new THREE.Mesh(new THREE.SphereGeometry(5.2, 48, 32), new THREE.MeshStandardMaterial({ map: makeMoonTexture(), roughness: .94, metalness: 0 })); scene.add(moon);
+const moon = new THREE.Mesh(new THREE.SphereGeometry(5.2, 48, 32), new THREE.MeshStandardMaterial({ map: createMoonTexture(renderer.capabilities.getMaxAnisotropy()), roughness: .94, metalness: 0 })); scene.add(moon);
 const sunLabel=makeTextSprite('太阳','#ffd589'),moonLabel=makeTextSprite('月球','#eee6d2');sunLabel.scale.set(10,2.5,1);moonLabel.scale.set(9,2.25,1);scene.add(sunLabel,moonLabel);
 
 const trackMaterials = {

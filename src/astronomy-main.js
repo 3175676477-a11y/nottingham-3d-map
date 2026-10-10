@@ -6,6 +6,7 @@ import landTopology from 'world-atlas/land-50m.json';
 import { DateTime } from 'luxon';
 import tzlookup from 'tz-lookup';
 import { daylight, sceneDirections, skyState } from './astronomy.js';
+import { createGlobeTexture, createMoonTexture } from './globe-texture.js';
 import './astronomy.css';
 
 const root = document.querySelector('#astronomy-app');
@@ -50,7 +51,7 @@ function makeEarthTexture() {
   // shade land into broad climate/terrain regions with fine-scale relief.
   // This avoids the visible atlas grid and flat, single-color continents.
   const mask = document.createElement('canvas'); mask.width = width; mask.height = height;
-  const maskCtx = mask.getContext('2d'); maskCtx.fillStyle = '#fff'; maskCtx.beginPath(); path(land); maskCtx.fill();
+  const maskCtx = mask.getContext('2d'); maskCtx.fillStyle = '#fff'; maskCtx.beginPath(); geoPath(projection, maskCtx)(land); maskCtx.fill();
   const landMask = maskCtx.getImageData(0, 0, width, height).data;
   const image = ctx.createImageData(width, height); const data = image.data;
   const broadNoise = makeTileNoise(22, 11, 68131), midNoise = makeTileNoise(70, 35, 93817), fineNoise = makeTileNoise(220, 110, 41239);
@@ -83,7 +84,7 @@ function makeEarthTexture() {
   }
   ctx.putImageData(image, 0, 0);
   ctx.beginPath(); path(land); ctx.strokeStyle = 'rgba(202,205,169,.55)'; ctx.lineWidth = .8; ctx.stroke();
-  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); texture.offset.x = .25; return texture;
+  return createGlobeTexture(canvas, renderer.capabilities.getMaxAnisotropy());
 }
 
 function makeCloudTexture() {
@@ -98,29 +99,21 @@ function makeCloudTexture() {
     data[i] = 226; data[i + 1] = 234; data[i + 2] = 236; data[i + 3] = alpha;
   }
   ctx.putImageData(image, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.offset.x = .25; texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); return texture;
+  return createGlobeTexture(canvas, renderer.capabilities.getMaxAnisotropy());
 }
 
-function makeMoonTexture() {
-  const canvas = document.createElement('canvas'); canvas.width=1024; canvas.height=512; const ctx=canvas.getContext('2d');
-  const grad=ctx.createLinearGradient(0,0,1024,512); grad.addColorStop(0,'#bfc2bf'); grad.addColorStop(.5,'#e1dfd5'); grad.addColorStop(1,'#a8aaa9'); ctx.fillStyle=grad; ctx.fillRect(0,0,1024,512);
-  let seed=24681; const rand=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};
-  for(let i=0;i<1450;i++){const x=rand()*1024,y=rand()*512,r=1+rand()*14;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=`rgba(61,65,68,${.025+rand()*.09})`;ctx.fill();ctx.beginPath();ctx.arc(x-r*.18,y-r*.18,r*.76,Math.PI,Math.PI*1.8);ctx.strokeStyle=`rgba(255,255,255,${.05+rand()*.14})`;ctx.lineWidth=.8;ctx.stroke();}
-  const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace;tex.offset.x=.25;return tex;
-}
 
 const sunGeo = new THREE.SphereGeometry(sunRadius, 48, 48);
 body.sun = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffcf75 })); scene.add(body.sun);
 const glowCanvas=document.createElement('canvas');glowCanvas.width=glowCanvas.height=256;const gctx=glowCanvas.getContext('2d');const glow=gctx.createRadialGradient(128,128,12,128,128,128);glow.addColorStop(0,'rgba(255,215,143,.65)');glow.addColorStop(.2,'rgba(255,177,72,.3)');glow.addColorStop(1,'rgba(255,143,48,0)');gctx.fillStyle=glow;gctx.fillRect(0,0,256,256);body.sunGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(glowCanvas),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));body.sunGlow.scale.set(24,24,1);body.sunGlow.position.set(0,0,0);scene.add(body.sunGlow);
 
-// Keep orbit geometry off the globe face: from an Earth-centered camera its projected arc can resemble a surface stripe.
 body.earthCarrier.add(body.earthSpin);scene.add(body.earthCarrier);
 body.earthSurface=new THREE.Mesh(new THREE.SphereGeometry(earthRadius,112,80),new THREE.MeshStandardMaterial({map:makeEarthTexture(),roughness:.72,metalness:.015}));body.earthSurface.userData.selectable=true;body.earthSpin.add(body.earthSurface);
 body.earthClouds=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.012,96,64),new THREE.MeshLambertMaterial({map:makeCloudTexture(),transparent:true,opacity:.08,depthWrite:false}));body.earthSpin.add(body.earthClouds);
 const atmosphere=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.035,64,48),new THREE.MeshBasicMaterial({color:0x5bb8ef,transparent:true,opacity:.075,side:THREE.BackSide,blending:THREE.AdditiveBlending}));body.earthSpin.add(atmosphere);
 body.marker.add(new THREE.Mesh(new THREE.SphereGeometry(.19,20,14),new THREE.MeshBasicMaterial({color:0xffd073})));const markerRing=new THREE.Mesh(new THREE.TorusGeometry(.32,.025,8,32),new THREE.MeshBasicMaterial({color:0xffd073}));markerRing.rotation.x=Math.PI/2;body.marker.add(markerRing);body.earthSpin.add(body.marker);
 
-body.moonSurface=new THREE.Mesh(new THREE.SphereGeometry(moonRadius,48,32),new THREE.MeshStandardMaterial({map:makeMoonTexture(),roughness:1}));body.moon.add(body.moonSurface);scene.add(body.moon);
+body.moonSurface=new THREE.Mesh(new THREE.SphereGeometry(moonRadius,48,32),new THREE.MeshStandardMaterial({map:createMoonTexture(renderer.capabilities.getMaxAnisotropy()),roughness:1}));body.moon.add(body.moonSurface);scene.add(body.moon);
 const starsGeo=new THREE.BufferGeometry(),starPos=[],starColors=[];let starSeed=8331;const random=()=>{starSeed=(starSeed*16807)%2147483647;return starSeed/2147483647;};for(let i=0;i<2600;i++){const theta=random()*Math.PI*2, z=random()*2-1,r=450+random()*900,q=Math.sqrt(1-z*z);starPos.push(r*q*Math.cos(theta),r*z,r*q*Math.sin(theta));const c=new THREE.Color().setHSL(.56+random()*.12,.15,.56+random()*.4);starColors.push(c.r,c.g,c.b);}starsGeo.setAttribute('position',new THREE.Float32BufferAttribute(starPos,3));starsGeo.setAttribute('color',new THREE.Float32BufferAttribute(starColors,3));const stars=new THREE.Points(starsGeo,new THREE.PointsMaterial({size:1.15,vertexColors:true,transparent:true,opacity:.8,sizeAttenuation:false}));scene.add(stars);
 
 const dateInput=document.querySelector('#date-time'),playButton=document.querySelector('#play'),speedSelect=document.querySelector('#speed-select'),speedRange=document.querySelector('#speed');
