@@ -27,6 +27,19 @@ let previousEarthPosition = initialEarthPosition.clone();
 const body = { sun: null, earthCarrier: new THREE.Group(), earthSpin: new THREE.Group(), earthSurface: null, earthClouds: null, moon: new THREE.Group(), moonSurface: null, marker: new THREE.Group(), sunGlow: null, moonOrbit: null };
 const earthRadius = 6, sunRadius = 4.2, moonRadius = 1.45, moonOrbitRadius = 10.5;
 
+function makeTileNoise(columns, rows, seed) {
+  let state = seed; const values = new Float32Array(columns * rows);
+  for (let i = 0; i < values.length; i++) { state = (state * 16807) % 2147483647; values[i] = state / 2147483647; }
+  const fade = n => n * n * (3 - 2 * n);
+  return (u, v) => {
+    const x = ((u % 1) + 1) % 1 * columns, y = ((v % 1) + 1) % 1 * rows;
+    const x0 = Math.floor(x), y0 = Math.floor(y), fx = fade(x - x0), fy = fade(y - y0);
+    const at = (dx, dy) => values[((y0 + dy) % rows) * columns + (x0 + dx) % columns];
+    const top = at(0, 0) * (1 - fx) + at(1, 0) * fx, bottom = at(0, 1) * (1 - fx) + at(1, 1) * fx;
+    return top * (1 - fy) + bottom * fy;
+  };
+}
+
 function makeEarthTexture() {
   const width = 2048, height = 1024, canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
   const ctx = canvas.getContext('2d');
@@ -40,23 +53,21 @@ function makeEarthTexture() {
   const maskCtx = mask.getContext('2d'); maskCtx.fillStyle = '#fff'; maskCtx.beginPath(); path(land); maskCtx.fill();
   const landMask = maskCtx.getImageData(0, 0, width, height).data;
   const image = ctx.createImageData(width, height); const data = image.data;
-  const smoothNoise = (x, y, sx, sy, salt = 0) => {
-    const kx = Math.max(1, Math.round(sx * width / (Math.PI * 2))), ky = Math.max(1, Math.round(sy * height / (Math.PI * 2)));
-    const lon = x / width * Math.PI * 2, lat = y / height * Math.PI * 2;
-    return Math.sin(lon * kx + Math.sin(lat * ky + salt) * 2.1 + salt) * Math.cos(lat * (ky + 1) + Math.cos(lon * Math.max(1, kx - 1) - salt) * 1.8);
-  };
+  const broadNoise = makeTileNoise(22, 11, 68131), midNoise = makeTileNoise(70, 35, 93817), fineNoise = makeTileNoise(220, 110, 41239);
   for (let y = 0; y < height; y++) {
-    const latitude = 90 - y / height * 180, absLat = Math.abs(latitude);
+    const v = y / height, latitude = 90 - v * 180, absLat = Math.abs(latitude);
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
-      const broad = smoothNoise(x, y, .008, .011, 2.4), mid = smoothNoise(x, y, .035, .041, 5.7), fine = smoothNoise(x, y, .19, .17, 8.2);
+      const u = x / width, broad = broadNoise(u, v), mid = midNoise(u, v), fine = fineNoise(u, v);
       const ocean = landMask[i] < 100;
       let color;
       if (ocean) {
-        const depth = .5 + broad * .14 + mid * .045 + fine * .012;
-        color = [Math.round(12 + depth * 10), Math.round(41 + depth * 23), Math.round(67 + depth * 37)];
+        // Keep open water almost uniform: a very soft, isotropic variation
+        // reads as ocean depth without producing latitude-like stripes.
+        const depth = (broad - .5) * 5 + (mid - .5) * 2 + (fine - .5);
+        color = [Math.round(14 + depth * .65), Math.round(43 + depth * 1.2), Math.round(70 + depth * 1.8)];
       } else {
-        const aridity = broad * .43 + mid * .34 + Math.sin(x * .004 + y * .013) * .23;
+        const aridity = (broad - .5) * .86 + (mid - .5) * .68;
         let base;
         if (absLat > 70) base = [190, 193, 177];
         else if (absLat < 27 && aridity > .17) base = [157, 139, 94];
@@ -64,7 +75,7 @@ function makeEarthTexture() {
         else if (aridity > .36) base = [143, 137, 98];
         else if (aridity < -.24) base = [73, 112, 77];
         else base = [111, 130, 88];
-        const relief = broad * 13 + mid * 10 + fine * 5;
+        const relief = (broad - .5) * 14 + (mid - .5) * 12 + (fine - .5) * 8;
         color = base.map((value, c) => Math.max(0, Math.min(255, Math.round(value + relief * (c === 2 ? .7 : 1)))));
       }
       data[i] = color[0]; data[i + 1] = color[1]; data[i + 2] = color[2]; data[i + 3] = 255;
@@ -78,15 +89,12 @@ function makeEarthTexture() {
 function makeCloudTexture() {
   const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 512; const ctx = canvas.getContext('2d');
   const image = ctx.createImageData(canvas.width, canvas.height), data = image.data;
-  const noise = (x, y, sx, sy, seed) => {
-    const kx = Math.max(1, Math.round(sx * canvas.width / (Math.PI * 2))), ky = Math.max(1, Math.round(sy * canvas.height / (Math.PI * 2)));
-    const lon = x / canvas.width * Math.PI * 2, lat = y / canvas.height * Math.PI * 2;
-    return .5 + .5 * Math.sin(lon * kx + Math.sin(lat * ky + seed) * 2.8) * Math.cos(lat * (ky + 1) + Math.cos(lon * Math.max(1, kx - 1) - seed) * 2.2);
-  };
+  const cloudBroad = makeTileNoise(18, 9, 70891), cloudMid = makeTileNoise(52, 26, 30719), cloudFine = makeTileNoise(150, 75, 95287);
   for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
     const i = (y * canvas.width + x) * 4;
-    const coverage = noise(x, y, .018, .021, 1.2) * .56 + noise(x, y, .062, .073, 4.8) * .31 + noise(x, y, .19, .17, 7.1) * .13;
-    const alpha = THREE.MathUtils.smoothstep(coverage, .57, .76) * 104;
+    const u = x / canvas.width, v = y / canvas.height;
+    const coverage = cloudBroad(u, v) * .58 + cloudMid(u, v) * .3 + cloudFine(u, v) * .12;
+    const alpha = THREE.MathUtils.smoothstep(coverage, .55, .73) * 82;
     data[i] = 226; data[i + 1] = 234; data[i + 2] = 236; data[i + 3] = alpha;
   }
   ctx.putImageData(image, 0, 0);
@@ -109,7 +117,7 @@ const orbitPoints=[];for(let i=0;i<=320;i++){const a=i/320*Math.PI*2;const ecl=n
 const orbitLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(orbitPoints),new THREE.LineDashedMaterial({color:0x65738b,dashSize:.65,gapSize:.7,transparent:true,opacity:.48}));orbitLine.computeLineDistances();scene.add(orbitLine);
 body.earthCarrier.add(body.earthSpin);scene.add(body.earthCarrier);
 body.earthSurface=new THREE.Mesh(new THREE.SphereGeometry(earthRadius,112,80),new THREE.MeshStandardMaterial({map:makeEarthTexture(),roughness:.72,metalness:.015}));body.earthSurface.userData.selectable=true;body.earthSpin.add(body.earthSurface);
-body.earthClouds=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.012,96,64),new THREE.MeshLambertMaterial({map:makeCloudTexture(),transparent:true,opacity:.48,depthWrite:false}));body.earthSpin.add(body.earthClouds);
+body.earthClouds=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.012,96,64),new THREE.MeshLambertMaterial({map:makeCloudTexture(),transparent:true,opacity:.3,depthWrite:false}));body.earthSpin.add(body.earthClouds);
 const atmosphere=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.035,64,48),new THREE.MeshBasicMaterial({color:0x5bb8ef,transparent:true,opacity:.075,side:THREE.BackSide,blending:THREE.AdditiveBlending}));body.earthSpin.add(atmosphere);
 const axisGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,-9,0),new THREE.Vector3(0,9,0)]);const axisLine=new THREE.Line(axisGeo,new THREE.LineDashedMaterial({color:0x9db6cf,dashSize:.35,gapSize:.35,transparent:true,opacity:.48}));axisLine.computeLineDistances();body.earthCarrier.add(axisLine);
 body.marker.add(new THREE.Mesh(new THREE.SphereGeometry(.19,20,14),new THREE.MeshBasicMaterial({color:0xffd073})));const markerRing=new THREE.Mesh(new THREE.TorusGeometry(.32,.025,8,32),new THREE.MeshBasicMaterial({color:0xffd073}));markerRing.rotation.x=Math.PI/2;body.marker.add(markerRing);body.earthSpin.add(body.marker);
