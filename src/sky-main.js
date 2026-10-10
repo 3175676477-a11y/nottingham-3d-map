@@ -185,7 +185,26 @@ function rebuildTrajectory(dateTime) {
 function updateTracks(now) {
   const key=`${trajectoryKey}|${Math.floor(now/600000)}`;if(key===renderedTimeKey)return;renderedTimeKey=key;
   for(const body of ['sun','moon'])for(const when of ['Past','Future']){
-    const points=[];for(let i=1;i<trajectory.length;i++){const a=trajectory[i-1],b=trajectory[i];if(a[body].altitude<0||b[body].altitude<0)continue;const past=(a.ms+b.ms)/2<=now;if((when==='Past')!==past)continue;points.push(skyVector(a[body].azimuth,a[body].altitude),skyVector(b[body].azimuth,b[body].altitude));}
+    // Include the exact current position in both halves so the solid and
+    // dashed tracks meet cleanly instead of leaving a gap at a sample boundary.
+    const current=skyState(new Date(now),latitude,longitude)[body];
+    const samples=trajectory.filter(p=>when==='Past'?p.ms<now:p.ms>now);
+    samples.push({ms:now,[body]:current});samples.sort((a,b)=>a.ms-b.ms);
+    const points=[];
+    const positionAt=(a,b,f)=>{
+      let delta=((b.azimuth-a.azimuth+540)%360)-180;
+      return {azimuth:(a.azimuth+delta*f+360)%360,altitude:a.altitude+(b.altitude-a.altitude)*f};
+    };
+    // Clip segments precisely to the horizon. This keeps a trajectory
+    // continuous while preventing lines from cutting below the visible dome.
+    for(let i=1;i<samples.length;i++){
+      const a=samples[i-1],b=samples[i],pa=a[body],pb=b[body];
+      if(pa.altitude<0&&pb.altitude<0)continue;
+      let start=pa,end=pb;
+      if(pa.altitude<0)start=positionAt(pa,pb,-pa.altitude/(pb.altitude-pa.altitude));
+      if(pb.altitude<0)end=positionAt(pa,pb,-pa.altitude/(pb.altitude-pa.altitude));
+      points.push(skyVector(start.azimuth,Math.max(0,start.altitude)),skyVector(end.azimuth,Math.max(0,end.altitude)));
+    }
     const line=trackLines[body+when];line.geometry.dispose();line.geometry=new THREE.BufferGeometry().setFromPoints(points);if(trackMaterials[body+when].isLineDashedMaterial)line.computeLineDistances();
   }
 }

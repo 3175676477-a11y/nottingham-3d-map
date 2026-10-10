@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { geoEquirectangular, geoPath } from 'd3-geo';
-import { merge, mesh } from 'topojson-client';
+import { merge } from 'topojson-client';
 import landTopology from 'world-atlas/land-50m.json';
-import countryTopology from 'world-atlas/countries-50m.json';
 import { DateTime } from 'luxon';
 import tzlookup from 'tz-lookup';
 import { daylight, sceneDirections, skyState } from './astronomy.js';
@@ -31,32 +30,66 @@ const earthRadius = 6, sunRadius = 4.2, moonRadius = 1.45, moonOrbitRadius = 10.
 function makeEarthTexture() {
   const width = 2048, height = 1024, canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
   const ctx = canvas.getContext('2d');
-  const ocean = ctx.createLinearGradient(0, 0, width, height); ocean.addColorStop(0, '#163c61'); ocean.addColorStop(.5, '#275b83'); ocean.addColorStop(1, '#153652'); ctx.fillStyle = ocean; ctx.fillRect(0, 0, width, height);
   const land = merge(landTopology, landTopology.objects.land.geometries);
   const projection = geoEquirectangular().scale(width / (2 * Math.PI)).translate([width / 2, height / 2]);
   const path = geoPath(projection, ctx);
-  const landFill = ctx.createLinearGradient(0, 0, 0, height); landFill.addColorStop(0, '#a4a98c'); landFill.addColorStop(.24, '#7e9874'); landFill.addColorStop(.52, '#79946d'); landFill.addColorStop(.78, '#7d946f'); landFill.addColorStop(1, '#a6a58c');
-  ctx.fillStyle = landFill; ctx.strokeStyle = '#bec29b'; ctx.lineWidth = 1.2; ctx.beginPath(); path(land); ctx.fill(); ctx.stroke();
-  // Add low-contrast relief variation inside the high-resolution land outlines.
-  const relief = document.createElement('canvas'); relief.width = 512; relief.height = 256;
-  const reliefCtx = relief.getContext('2d'), reliefImage = reliefCtx.createImageData(relief.width, relief.height); let reliefSeed = 62713;
-  const reliefRand = () => { reliefSeed = (reliefSeed * 16807) % 2147483647; return reliefSeed / 2147483647; };
-  for (let y = 0; y < relief.height; y++) for (let x = 0; x < relief.width; x++) { const i = (y * relief.width + x) * 4; const wave = Math.sin(x * .031 + Math.sin(y * .017) * 3) * Math.cos(y * .041 + Math.cos(x * .013) * 2); const n = Math.max(0, Math.min(255, 128 + wave * 26 + (reliefRand() - .5) * 55)); reliefImage.data[i] = reliefImage.data[i + 1] = reliefImage.data[i + 2] = n; reliefImage.data[i + 3] = 255; }
-  reliefCtx.putImageData(reliefImage, 0, 0); ctx.save(); ctx.beginPath(); path(land); ctx.clip(); ctx.globalCompositeOperation = 'soft-light'; ctx.globalAlpha = .25; ctx.drawImage(relief, 0, 0, width, height); ctx.restore();
-  // The land-only topology has no country geometries. Keep the land fill and
-  // draw borders from the separate countries topology shipped by world-atlas.
-  const borders = mesh(countryTopology, countryTopology.objects.countries, (a,b) => a !== b);
-  ctx.strokeStyle = '#d1c89b75'; ctx.lineWidth = .8; ctx.beginPath(); path(borders); ctx.stroke();
-  ctx.strokeStyle = '#e5e5d544'; ctx.lineWidth = 1;
-  for (let lat = -60; lat <= 60; lat += 30) { const y = (90-lat)/180*height; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(width,y); ctx.stroke(); }
-  for (let lon = -150; lon <= 180; lon += 30) { const x=(lon+180)/360*width; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke(); }
+  // Use the bundled Natural Earth coastline as the geographic base, then
+  // shade land into broad climate/terrain regions with fine-scale relief.
+  // This avoids the visible atlas grid and flat, single-color continents.
+  const mask = document.createElement('canvas'); mask.width = width; mask.height = height;
+  const maskCtx = mask.getContext('2d'); maskCtx.fillStyle = '#fff'; maskCtx.beginPath(); path(land); maskCtx.fill();
+  const landMask = maskCtx.getImageData(0, 0, width, height).data;
+  const image = ctx.createImageData(width, height); const data = image.data;
+  const smoothNoise = (x, y, sx, sy, salt = 0) => {
+    const kx = Math.max(1, Math.round(sx * width / (Math.PI * 2))), ky = Math.max(1, Math.round(sy * height / (Math.PI * 2)));
+    const lon = x / width * Math.PI * 2, lat = y / height * Math.PI * 2;
+    return Math.sin(lon * kx + Math.sin(lat * ky + salt) * 2.1 + salt) * Math.cos(lat * (ky + 1) + Math.cos(lon * Math.max(1, kx - 1) - salt) * 1.8);
+  };
+  for (let y = 0; y < height; y++) {
+    const latitude = 90 - y / height * 180, absLat = Math.abs(latitude);
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const broad = smoothNoise(x, y, .008, .011, 2.4), mid = smoothNoise(x, y, .035, .041, 5.7), fine = smoothNoise(x, y, .19, .17, 8.2);
+      const ocean = landMask[i] < 100;
+      let color;
+      if (ocean) {
+        const depth = .5 + broad * .14 + mid * .045 + fine * .012;
+        color = [Math.round(12 + depth * 10), Math.round(41 + depth * 23), Math.round(67 + depth * 37)];
+      } else {
+        const aridity = broad * .43 + mid * .34 + Math.sin(x * .004 + y * .013) * .23;
+        let base;
+        if (absLat > 70) base = [190, 193, 177];
+        else if (absLat < 27 && aridity > .17) base = [157, 139, 94];
+        else if (absLat < 12) base = [57, 111, 71];
+        else if (aridity > .36) base = [143, 137, 98];
+        else if (aridity < -.24) base = [73, 112, 77];
+        else base = [111, 130, 88];
+        const relief = broad * 13 + mid * 10 + fine * 5;
+        color = base.map((value, c) => Math.max(0, Math.min(255, Math.round(value + relief * (c === 2 ? .7 : 1)))));
+      }
+      data[i] = color[0]; data[i + 1] = color[1]; data[i + 2] = color[2]; data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  ctx.beginPath(); path(land); ctx.strokeStyle = 'rgba(202,205,169,.55)'; ctx.lineWidth = .8; ctx.stroke();
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); texture.offset.x = .25; return texture;
 }
 
 function makeCloudTexture() {
   const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 512; const ctx = canvas.getContext('2d');
-  let seed = 92357; const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  for (let i = 0; i < 1500; i++) { const x = rand() * canvas.width, y = rand() * canvas.height, r = 3 + rand() * 18; const puff = ctx.createRadialGradient(x, y, 0, x, y, r); puff.addColorStop(0, `rgba(236,242,239,${.04 + rand() * .13})`); puff.addColorStop(1, 'rgba(236,242,239,0)'); ctx.fillStyle = puff; ctx.fillRect(x-r,y-r,r*2,r*2); }
+  const image = ctx.createImageData(canvas.width, canvas.height), data = image.data;
+  const noise = (x, y, sx, sy, seed) => {
+    const kx = Math.max(1, Math.round(sx * canvas.width / (Math.PI * 2))), ky = Math.max(1, Math.round(sy * canvas.height / (Math.PI * 2)));
+    const lon = x / canvas.width * Math.PI * 2, lat = y / canvas.height * Math.PI * 2;
+    return .5 + .5 * Math.sin(lon * kx + Math.sin(lat * ky + seed) * 2.8) * Math.cos(lat * (ky + 1) + Math.cos(lon * Math.max(1, kx - 1) - seed) * 2.2);
+  };
+  for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+    const i = (y * canvas.width + x) * 4;
+    const coverage = noise(x, y, .018, .021, 1.2) * .56 + noise(x, y, .062, .073, 4.8) * .31 + noise(x, y, .19, .17, 7.1) * .13;
+    const alpha = THREE.MathUtils.smoothstep(coverage, .57, .76) * 104;
+    data[i] = 226; data[i + 1] = 234; data[i + 2] = 236; data[i + 3] = alpha;
+  }
+  ctx.putImageData(image, 0, 0);
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.offset.x = .25; texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); return texture;
 }
 
@@ -76,7 +109,7 @@ const orbitPoints=[];for(let i=0;i<=320;i++){const a=i/320*Math.PI*2;const ecl=n
 const orbitLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(orbitPoints),new THREE.LineDashedMaterial({color:0x65738b,dashSize:.65,gapSize:.7,transparent:true,opacity:.48}));orbitLine.computeLineDistances();scene.add(orbitLine);
 body.earthCarrier.add(body.earthSpin);scene.add(body.earthCarrier);
 body.earthSurface=new THREE.Mesh(new THREE.SphereGeometry(earthRadius,112,80),new THREE.MeshStandardMaterial({map:makeEarthTexture(),roughness:.72,metalness:.015}));body.earthSurface.userData.selectable=true;body.earthSpin.add(body.earthSurface);
-body.earthClouds=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.012,96,64),new THREE.MeshLambertMaterial({map:makeCloudTexture(),transparent:true,opacity:.6,depthWrite:false}));body.earthSpin.add(body.earthClouds);
+body.earthClouds=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.012,96,64),new THREE.MeshLambertMaterial({map:makeCloudTexture(),transparent:true,opacity:.48,depthWrite:false}));body.earthSpin.add(body.earthClouds);
 const atmosphere=new THREE.Mesh(new THREE.SphereGeometry(earthRadius*1.035,64,48),new THREE.MeshBasicMaterial({color:0x5bb8ef,transparent:true,opacity:.075,side:THREE.BackSide,blending:THREE.AdditiveBlending}));body.earthSpin.add(atmosphere);
 const axisGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,-9,0),new THREE.Vector3(0,9,0)]);const axisLine=new THREE.Line(axisGeo,new THREE.LineDashedMaterial({color:0x9db6cf,dashSize:.35,gapSize:.35,transparent:true,opacity:.48}));axisLine.computeLineDistances();body.earthCarrier.add(axisLine);
 body.marker.add(new THREE.Mesh(new THREE.SphereGeometry(.19,20,14),new THREE.MeshBasicMaterial({color:0xffd073})));const markerRing=new THREE.Mesh(new THREE.TorusGeometry(.32,.025,8,32),new THREE.MeshBasicMaterial({color:0xffd073}));markerRing.rotation.x=Math.PI/2;body.marker.add(markerRing);body.earthSpin.add(body.marker);
