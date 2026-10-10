@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { geoEquirectangular, geoPath } from 'd3-geo';
 import { merge, mesh } from 'topojson-client';
 import landTopology from 'world-atlas/land-110m.json';
+import countryTopology from 'world-atlas/countries-110m.json';
 import { DateTime } from 'luxon';
 import tzlookup from 'tz-lookup';
 import { daylight, sceneDirections, skyState } from './astronomy.js';
@@ -12,16 +13,19 @@ const root = document.querySelector('#astronomy-app');
 root.innerHTML = `<main class="observatory"><div id="cosmos"></div><header class="topbar"><div class="astro-brand"><span class="astro-mark">☼</span><div><b>SOLAR ATLAS <i>·</i> 02</b><small>EARTH / MOON / SUN OBSERVATORY</small></div></div><div class="top-coords">GEOCENTRIC MODEL&nbsp; / &nbsp;UTC INTERPRETED BY OBSERVER TIMEZONE</div><a class="back-link" href="/">校园地形图&nbsp; ↗</a></header><section class="hero"><span class="eyebrow">THREE BODIES / ONE SKY</span><h1>Sun, Earth<br><em>&amp; Moon.</em></h1><p>点击地球任意地点，查看当地天空。</p></section><div class="body-label sun-label" id="sun-label">SUN / 太阳</div><div class="body-label earth-label" id="earth-label">EARTH / 地球</div><div class="body-label moon-label" id="moon-label">MOON / 月球</div><aside class="info-card"><div class="card-head"><h2>当地天空</h2><span class="live"><i></i> LIVE SKY</span></div><div class="place" id="place-line">NOTTINGHAM · 52.95°N, 1.15°W</div><div class="rule"></div><div class="section-label">DAYLIGHT / 日照</div><div class="day-row"><div><span class="day-length" id="day-length">--:--</span><span class="day-unit">小时</span></div><div class="rise-set"><div><span>日出</span><b id="sunrise">--:--</b></div><div><span>日落</span><b id="sunset">--:--</b></div></div></div><div class="sky-state"><i id="sky-icon">☼</i><span id="sky-state">正在计算当地天空</span></div><div class="section-label">MOON / 月球观测</div><div class="moon-block"><canvas class="moon-icon" id="phase-icon" width="130" height="130"></canvas><div><div class="moon-phase" id="phase-name">月相</div><div class="moon-meta"><span id="illumination">--</span> 照明&nbsp; · &nbsp;月龄 <span id="moon-age">--</span> 天</div></div></div><div class="moon-position"><div class="compass" id="compass"><b class="n">N</b><b class="e">E</b><b class="s">S</b><b class="w">W</b><i class="moon-dot" id="moon-dot"></i></div><div class="compass-values"><div><span>地平高度 ALT</span><b id="moon-alt">--°</b></div><div><span>地平方位 AZ</span><div class="compass-row"><b id="moon-az">--°</b><b class="moon-pos-name" id="moon-dir">--</b></div></div><div><span>地平状态</span><b id="moon-horizon">--</b></div></div></div><p class="model-note"><strong>比例说明：</strong>天体大小与距离经过视觉夸大；轨道演示方向与天空数值按所选时间计算。月球采用同步自转模型。</p></aside><div class="location-readout">OBSERVER / <strong id="location-label">NOTTINGHAM</strong><br>LAT <span id="lat-label">52.9500°</span>&nbsp;&nbsp; LON <span id="lon-label">−1.1500°</span><br><span id="zone-label">Europe/London</span></div><section class="timeline"><div class="timeline-head"><label>SIMULATION TIME / 观测时间</label><div class="time-edit"><input id="date-time" type="datetime-local" step="60"><div class="transport"><button id="play" aria-label="播放或暂停">▶</button><input id="speed" type="range" min="0" max="3" step="1" value="1" title="时间流速"><select id="speed-select"><option value="3600">1 小时 / 秒</option><option value="86400" selected>1 天 / 秒</option><option value="604800">1 周 / 秒</option><option value="2592000">1 月 / 秒</option></select><button id="now">现在</button></div></div></div></section><div class="help">拖动旋转视角&nbsp; · &nbsp;滚轮缩放&nbsp; · &nbsp;点击地球选择地点</div><a class="source-link" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">LAND : NATURAL EARTH&nbsp; ↗</a></main>`;
 
 const host = document.querySelector('#cosmos');
+const earthOrbitRadius = 43;
 const scene = new THREE.Scene(); scene.background = new THREE.Color('#090e19');
 const camera = new THREE.PerspectiveCamera(42, host.clientWidth / host.clientHeight, .1, 4000);
-camera.position.set(42, 31, 68);
+// Keep the full annual orbit in frame so changing the simulation date never
+// sends Earth outside the viewport or behind the sky panel.
+camera.position.set(0, 70, 185);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(host.clientWidth, host.clientHeight); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.22; host.append(renderer.domElement);
 scene.add(new THREE.AmbientLight(0x43516e, .62));
 const sunlight = new THREE.DirectionalLight(0xfff1d6, 3.2); sunlight.position.set(-500, 0, 0); sunlight.target.position.set(0,0,0); scene.add(sunlight, sunlight.target);
 
 const orbitControls = new OrbitControls(camera, renderer.domElement); orbitControls.enableDamping = true; orbitControls.dampingFactor = .055; orbitControls.minDistance = 17; orbitControls.maxDistance = 220; orbitControls.target.set(0,0,0); orbitControls.autoRotate = false;
 const body = { sun: null, earthCarrier: new THREE.Group(), earthSpin: new THREE.Group(), earthSurface: null, moon: new THREE.Group(), moonSurface: null, marker: new THREE.Group(), sunGlow: null, moonOrbit: null };
-const earthRadius = 6, sunRadius = 4.2, moonRadius = 1.45, earthOrbitRadius = 43, moonOrbitRadius = 10.5;
+const earthRadius = 6, sunRadius = 4.2, moonRadius = 1.45, moonOrbitRadius = 10.5;
 
 function makeEarthTexture() {
   const width = 2048, height = 1024, canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
@@ -31,7 +35,9 @@ function makeEarthTexture() {
   const projection = geoEquirectangular().scale(width / (2 * Math.PI)).translate([width / 2, height / 2]);
   const path = geoPath(projection, ctx);
   ctx.fillStyle = '#789477'; ctx.strokeStyle = '#b7bd8c'; ctx.lineWidth = 1.7; ctx.beginPath(); path(land); ctx.fill(); ctx.stroke();
-  const borders = mesh(landTopology, landTopology.objects.countries, (a,b) => a !== b);
+  // The land-only topology has no country geometries. Keep the land fill and
+  // draw borders from the separate countries topology shipped by world-atlas.
+  const borders = mesh(countryTopology, countryTopology.objects.countries, (a,b) => a !== b);
   ctx.strokeStyle = '#d1c89b75'; ctx.lineWidth = .8; ctx.beginPath(); path(borders); ctx.stroke();
   ctx.strokeStyle = '#e5e5d544'; ctx.lineWidth = 1;
   for (let lat = -60; lat <= 60; lat += 30) { const y = (90-lat)/180*height; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(width,y); ctx.stroke(); }
