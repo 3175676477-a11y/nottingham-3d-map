@@ -1,37 +1,57 @@
 import * as THREE from 'three';
-import {movePlayer} from './collision.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import './style.css';
+import { BOUNDS, WIDTH, DEPTH, loadElevationGrid, loadRoads, createTerrain, createContours, createRoad, makeRoadLabel } from './topography.js';
 
-const buildings=[
- {name:'Sherwood Hall',x:0,z:0,w:30,d:16,h:12,color:0xa56f55,detail:'探索中心 · 宿舍示意模型。尺寸、立面及方位尚未核实。'},
- {name:'宿舍侧翼 A',x:-24,z:-13,w:12,d:26,h:9,color:0xb38e73,detail:'占位建筑 · 不代表已确认的真实建筑或连接关系。'},
- {name:'宿舍侧翼 B',x:24,z:-13,w:12,d:26,h:9,color:0xb38e73,detail:'占位建筑 · 不代表已确认的真实建筑或连接关系。'},
- {name:'公共空间',x:0,z:-32,w:22,d:12,h:6,color:0x8c9b91,detail:'占位建筑 · 用于演示校园步行和碰撞交互。'},
- {name:'周边建筑 01',x:-57,z:20,w:20,d:18,h:10,color:0x87989b,detail:'周边布局占位 · 实际用途和位置待核实。'},
- {name:'周边建筑 02',x:58,z:-37,w:23,d:18,h:13,color:0x87989b,detail:'周边布局占位 · 实际用途和位置待核实。'}
-];
-document.querySelector('#app').innerHTML=`<div id="viewport"></div><header><a class="brand" href="#">N<span> / CAMPUS EXPLORER</span></a><div class="edition">NOTTINGHAM UNIVERSITY <b>概念原型 · 01</b></div></header><section class="intro"><div class="eyebrow">UNIVERSITY PARK / 示意场景</div><h1>Sherwood<br><em>Hall.</em></h1><p>从这里开始，探索校园的另一种视角。</p><span class="tag"><i></i> 所有建筑与布局均为占位模型</span></section><aside id="info"><span class="eyebrow">BUILDING / 建筑信息</span><h2>Sherwood Hall</h2><p>探索中心 · 宿舍示意模型。尺寸、立面及方位尚未核实。</p><div class="measure">约 30 × 16 × 12 m <span>示意尺寸</span></div></aside><div class="crosshair">+</div><div id="hint">点击「开始探索」进入步行模式</div><div class="map"><span>示意方位 N ↑</span><canvas id="minimap" width="180" height="180"></canvas><small>平面图 · 非测绘数据</small></div><footer><div class="controls"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span><span>鼠标 · 环视 / 点击建筑</span><span><kbd>Shift</kbd> 加速 <kbd>Esc</kbd> 释放鼠标</span></div><button id="start">开始探索 <span>↗</span></button><button id="reset" title="回到初始位置">↺ 重置</button></footer><details class="sources"><summary>参考资料与模型说明 ↗</summary><p>公开参考入口：<a href="https://www.nottingham.ac.uk/accommodation/" target="_blank" rel="noopener">诺丁汉大学住宿官网</a>、<a href="https://www.nottingham.ac.uk/about/visitorinformation/mapsanddirections/universitypark.aspx" target="_blank" rel="noopener">University Park 地图</a>。本次环境无法访问官网，未核验页面内容。此原型仅以 Sherwood Hall 为主题，所有尺寸、方位、道路、树木及邻近建筑均为示意；不用于导航。</p></details>`;
-const scene=new THREE.Scene();scene.background=new THREE.Color('#dce7e5');scene.fog=new THREE.Fog('#dce7e5',85,240);
-const camera=new THREE.PerspectiveCamera(65,innerWidth/innerHeight,0.1,400);camera.rotation.order='YXZ';
-let renderer;
-try{renderer=new THREE.WebGLRenderer({antialias:true});}catch(e){document.querySelector('#hint').textContent='无法初始化 WebGL，请使用支持 WebGL 的浏览器。';throw e;}
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;document.querySelector('#viewport').append(renderer.domElement);
-scene.add(new THREE.HemisphereLight(0xe7f4ff,0x7c8b67,2.5));const sun=new THREE.DirectionalLight(0xffedce,3);sun.position.set(-45,70,40);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-100,right:100,top:100,bottom:-100});scene.add(sun);
-function box(w,h,d,color,x,y,z){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshStandardMaterial({color,roughness:.85}));m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;scene.add(m);return m;}
-box(240,.2,240,0x879e7b,0,-.15,0);box(180,.04,7,0xd3cbb6,0,.01,28);box(7,.04,170,0xd3cbb6,-39,.02,0);box(7,.04,145,0xd3cbb6,39,.02,0);box(70,.04,5,0xd3cbb6,0,.02,-47);
-const selectable=[];
-for(const b of buildings){const mesh=box(b.w,b.h,b.d,b.color,b.x,b.h/2,b.z);mesh.userData.building=b;selectable.push(mesh);box(b.w+1,.6,b.d+1,0x48534d,b.x,b.h+.3,b.z);
- for(let y=2;y<b.h-1;y+=3)for(let x=-b.w/2+2;x<b.w/2-1;x+=3){box(1.2,1.5,.12,0xb5d5d6,b.x+x,y,b.z+b.d/2+.08);box(1.2,1.5,.12,0xb5d5d6,b.x+x,y,b.z-b.d/2-.08);}
- const c=document.createElement('canvas');c.width=512;c.height=100;const ctx=c.getContext('2d');ctx.fillStyle='#153b36';ctx.fillRect(0,0,512,100);ctx.fillStyle='white';ctx.font='bold 30px sans-serif';ctx.textAlign='center';ctx.fillText(b.name+' · 占位',256,62);const label=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:true}));label.position.set(b.x,b.h+4,b.z);label.scale.set(18,3.5,1);scene.add(label);
+const app = document.querySelector('#app');
+app.innerHTML = `<main class="map-shell"><header class="masthead"><div class="wordmark"><span class="mark">U</span><div><strong>FIELDNOTES <i>/</i> 01</strong><small>NOTTINGHAM · UNIVERSITY PARK</small></div></div><div class="edition">TERRAIN STUDY&nbsp; <b>52°56′N&nbsp; 01°12′W</b></div></header><section class="title"><span class="eyebrow">CAMPUS LANDSCAPE / 地形专题</span><h1>Contours of<br><em>University Park.</em></h1><p>诺丁汉大学 · University Park 校区地形与道路</p></section><div id="scene"><div class="loading"><i></i><span>正在读取公开地形与道路数据…</span><small>高程瓦片 · OpenStreetMap</small></div></div><aside class="data-card"><span class="eyebrow">TERRAIN / 地形</span><h2>地势与坡度</h2><div class="legend"><div><i class="line minor"></i><span>等高线 <b>2 m</b></span></div><div><i class="line major"></i><span>主等高线 <b>10 m</b></span></div><div><i class="road-swatch"></i><span>道路 <b>OSM</b></span></div></div><div class="stats"><div><span>范围</span><b>University Park</b></div><div><span>高程范围</span><b id="elevations">读取中</b></div><div><span>垂直夸大</span><b>3 ×</b></div><div><span>道路要素</span><b id="road-count">读取中</b></div></div><div id="data-status" class="data-status">正在连接公开数据源…</div></aside><div class="map-stamp">UP<br><span>UNIVERSITY<br>PARK</span></div><div class="north">N <i>↑</i></div><div class="scale"><span>0</span><i></i><span>500 m</span></div><div class="map-controls"><button id="contours-toggle" class="active" aria-pressed="true"><span>〰</span> 等高线</button><button id="labels-toggle" class="active" aria-pressed="true"><span>Aa</span> 道路名称</button><button id="reset-view" title="重置视角">↺</button></div><div class="orbit-hint">拖动旋转&nbsp; · &nbsp;滚轮缩放&nbsp; · &nbsp;右键平移</div><details class="sources"><summary>数据来源与精度说明</summary><p>地形：AWS Terrain Tiles（Terrarium 高程瓦片；源数据约 30 m 级，网格插值不增加原始精度，垂直视觉夸大 3 倍）。道路：OpenStreetMap contributors（ODbL），显示机动车道路及服务道路。等高线依据瓦片内插值生成，2 m 间隔仅用于可视化，精度受源数据限制。范围为校区周边概览，不用于导航或工程测量。</p><p><a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noreferrer">AWS Terrain Tiles ↗</a>　<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap attribution ↗</a></p></details><footer><span>地形先于建筑 · 校园道路网络</span><span>DATA : PUBLIC SOURCES&nbsp; / &nbsp;CONTOUR INTERVAL : 2 M</span></footer></main>`;
+
+const stage = document.querySelector('#scene');
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xdbe1d7); scene.fog = new THREE.Fog(0xdbe1d7, 4500, 10000);
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 1, 20000); camera.position.set(WIDTH * .72, WIDTH * .6, DEPTH * .88);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(stage.clientWidth, stage.clientHeight); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; stage.prepend(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xf4f2e9, 0x76856a, 2));
+const sun = new THREE.DirectionalLight(0xfff1d7, 2.6); sun.position.set(-WIDTH * .35, WIDTH * .8, DEPTH * .3); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = -WIDTH; sun.shadow.camera.right = WIDTH; sun.shadow.camera.top = DEPTH; sun.shadow.camera.bottom = -DEPTH; scene.add(sun);
+const controls = new OrbitControls(camera, renderer.domElement); controls.target.set(0, 20, 0); controls.enableDamping = true; controls.dampingFactor = .06; controls.minDistance = 250; controls.maxDistance = 7000; controls.maxPolarAngle = Math.PI * .49; controls.update();
+const overlays = { contours: null, roads: [], labels: [] };
+const hint = document.querySelector('.orbit-hint');
+const setStatus = (text, state = '') => { const node = document.querySelector('#data-status'); node.textContent = text; node.className = `data-status ${state}`; };
+
+async function initialize() {
+  try {
+    const grid = await loadElevationGrid();
+    const terrain = createTerrain(grid); terrain.position.y = 0; scene.add(terrain);
+    overlays.contours = createContours(grid, 2); scene.add(overlays.contours);
+    document.querySelector('#elevations').textContent = `${Math.floor(grid.min)}–${Math.ceil(grid.max)} m`;
+    setStatus('高程已载入 · 2 m 等高线由公开高程网格插值生成。', 'ok');
+    try {
+      const roads = await loadRoads();
+      for (const road of roads) {
+        const mesh = createRoad(road, grid); scene.add(mesh); overlays.roads.push(mesh);
+        if (road.name && road.points.length > 8 && overlays.labels.length < 100) {
+          const middle = road.points[Math.floor(road.points.length / 2)];
+          const label = makeRoadLabel(road.name); if (label) { label.position.set(middle.x, mesh.geometry.attributes.position.getY(Math.floor(road.points.length / 2) * 2) + 14, middle.z); scene.add(label); overlays.labels.push(label); }
+        }
+      }
+      document.querySelector('#road-count').textContent = `${roads.length} 段`;
+      setStatus(`已载入 ${roads.length} 段 OpenStreetMap 道路。`, 'ok');
+    } catch (error) {
+      document.querySelector('#road-count').textContent = '暂不可用';
+      setStatus(`高程已显示；道路加载失败：${error.message}。检查网络后刷新页面。`, 'warn');
+    }
+    document.querySelector('.loading')?.remove();
+  } catch (error) {
+    const loading = document.querySelector('.loading');
+    loading.innerHTML = `<strong>暂时无法载入地形数据</strong><span>${error.message}</span><small>地图依赖公开高程瓦片与 OpenStreetMap 数据；请检查网络连接后刷新重试。</small>`;
+    loading.classList.add('error'); setStatus('公开高程服务当前不可用。', 'warn');
+    document.querySelector('#elevations').textContent = '未载入';
+  }
 }
-let seed=13;const random=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};for(let i=0;i<65;i++){const x=random()*190-95,z=random()*190-95;if(buildings.some(b=>Math.abs(x-b.x)<b.w/2+5&&Math.abs(z-b.z)<b.d/2+5)||Math.abs(z-28)<6||Math.abs(Math.abs(x)-39)<6)continue;box(.7,3,.7,0x766651,x,1.5,z);const tree=new THREE.Mesh(new THREE.IcosahedronGeometry(3+random(),1),new THREE.MeshStandardMaterial({color:0x466d53,roughness:1}));tree.position.set(x,5,z);tree.castShadow=true;scene.add(tree);}
-let yaw=0,pitch=0;const keys=new Set();function reset(){camera.position.set(0,1.7,48);yaw=0;pitch=.05;keys.clear();}reset();
-const hint=document.querySelector('#hint'),start=document.querySelector('#start');start.onclick=()=>renderer.domElement.requestPointerLock?.();document.querySelector('#reset').onclick=reset;
-document.addEventListener('pointerlockchange',()=>{keys.clear();const active=document.pointerLockElement===renderer.domElement;hint.textContent=active?'步行模式 · 将准星对准建筑并点击查看信息':'点击「开始探索」进入步行模式';start.innerHTML=active?'探索中 <span>●</span>':'开始探索 <span>↗</span>';});document.addEventListener('pointerlockerror',()=>{hint.textContent='鼠标锁定失败；可在场景中按住鼠标拖动环视。';});
-window.addEventListener('keydown',e=>{if(/^(Key[WASD]|ShiftLeft|ShiftRight|ArrowUp|ArrowDown|ArrowLeft|ArrowRight)$/.test(e.code)&&!['INPUT','TEXTAREA'].includes(e.target.tagName)){keys.add(e.code);e.preventDefault();}});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>keys.clear());document.addEventListener('visibilitychange',()=>keys.clear());
-let dragging=false,dragDistance=0;renderer.domElement.addEventListener('pointerdown',e=>{dragging=true;dragDistance=0;renderer.domElement.setPointerCapture(e.pointerId);});window.addEventListener('pointerup',()=>dragging=false);
-document.addEventListener('mousemove',e=>{if(document.pointerLockElement===renderer.domElement||dragging){yaw-=e.movementX*.0025;pitch=Math.max(-1.3,Math.min(1.3,pitch-e.movementY*.0025));dragDistance+=Math.abs(e.movementX)+Math.abs(e.movementY);}});
-const raycaster=new THREE.Raycaster();renderer.domElement.addEventListener('click',e=>{if(document.pointerLockElement!==renderer.domElement&&dragDistance>5)return;const pointer=document.pointerLockElement===renderer.domElement?new THREE.Vector2():new THREE.Vector2(e.clientX/innerWidth*2-1,1-e.clientY/innerHeight*2);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(selectable)[0];if(hit){const b=hit.object.userData.building;document.querySelector('#info h2').textContent=b.name;document.querySelector('#info p').textContent=b.detail;document.querySelector('.measure').innerHTML=`约 ${b.w} × ${b.d} × ${b.h} m <span>示意尺寸</span>`;}});
-window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
-const map=document.querySelector('#minimap').getContext('2d');const clock=new THREE.Clock();function frame(){requestAnimationFrame(frame);const dt=Math.min(clock.getDelta(),.05);let forward=Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown'));let right=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'));const length=Math.hypot(forward,right)||1;const speed=(keys.has('ShiftLeft')||keys.has('ShiftRight')?12:6)*dt;movePlayer(camera.position,(-Math.sin(yaw)*forward+Math.cos(yaw)*right)/length*speed,(-Math.cos(yaw)*forward-Math.sin(yaw)*right)/length*speed,buildings);camera.rotation.set(pitch,yaw,0);renderer.render(scene,camera);
-map.fillStyle='#dce5d6';map.fillRect(0,0,180,180);map.fillStyle='#b8b6a7';map.fillRect(0,108,180,5);for(const b of buildings){map.fillStyle=b.name==='Sherwood Hall'?'#a56f55':'#899a91';map.fillRect(90+(b.x-b.w/2)*.75,90+(b.z-b.d/2)*.75,b.w*.75,b.d*.75);}map.save();map.translate(90+camera.position.x*.75,90+camera.position.z*.75);map.rotate(-yaw);map.fillStyle='#123f39';map.beginPath();map.moveTo(0,-6);map.lineTo(-4,5);map.lineTo(4,5);map.closePath();map.fill();map.restore();}frame();
+
+initialize();
+document.querySelector('#contours-toggle').addEventListener('click', e => { const b = e.currentTarget; const visible = b.classList.toggle('active'); b.setAttribute('aria-pressed', String(visible)); if (overlays.contours) overlays.contours.visible = visible; });
+document.querySelector('#labels-toggle').addEventListener('click', e => { const b = e.currentTarget; const visible = b.classList.toggle('active'); b.setAttribute('aria-pressed', String(visible)); overlays.labels.forEach(label => label.visible = visible); });
+document.querySelector('#reset-view').addEventListener('click', () => { camera.position.set(WIDTH * .72, WIDTH * .6, DEPTH * .88); controls.target.set(0, 20, 0); controls.update(); });
+let resizeObserver = new ResizeObserver(() => { const w = stage.clientWidth, h = stage.clientHeight; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); }); resizeObserver.observe(stage);
+function render() { requestAnimationFrame(render); controls.update(); renderer.render(scene, camera); }
+render();
