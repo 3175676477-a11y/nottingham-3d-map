@@ -15,8 +15,8 @@ Open the local URL shown by Vite, usually `http://localhost:5173`.
 
 ## Data and accuracy
 
-The app loads public terrain tiles from AWS Terrain Tiles in the Terrarium RGB format and road geometry from the Overpass API for OpenStreetMap. Internet access is required. AWS source terrain is roughly 30 m resolution in this area; the rendered grid interpolates those pixels, which does not add source detail. Contours are interpolated from this surface at 2 m intervals, and 10 m index contours are highlighted. Vertical relief is exaggerated 3× for legibility. OpenStreetMap contributes road names and classifications under the ODbL. Attribution links and precision caveats appear in the map.
+The app first requests the Environment Agency's 2022 LIDAR Composite DTM at 1 m resolution through its public ArcGIS ImageServer. If the service is unavailable or blocked by browser/network policy, it falls back to AWS Terrain Tiles, which are approximately 30 m resolution locally. The map labels which dataset loaded and changes the contour interval to 10 m for the coarse fallback. Neither grid interpolation nor tighter contour spacing creates more source detail.
 
-The extent is a University Park overview, including some surroundings. It is an illustrative campus map, not a navigation or engineering survey product. Public APIs can be rate-limited or unavailable; the app reports data-loading failures instead of inventing terrain or roads.
+Road geometry comes from the Overpass API for OpenStreetMap. Road names and classifications are provided by OpenStreetMap contributors under the ODbL. Contours are interpolated from the loaded elevation grid; vertical relief is exaggerated 3× for legibility. The coverage is a University Park overview including nearby surroundings, not a navigation or engineering survey product. Public APIs may rate-limit or be unavailable; the app reports failures instead of inventing terrain or roads.
 
-Sources: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) and [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
+Sources: [Environment Agency LIDAR](https://environment.data.gov.uk/DefraDataDownload/?Mode=survey), [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/), and [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).

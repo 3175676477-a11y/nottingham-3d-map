@@ -59,7 +59,45 @@ function createSampler(tiles) {
   };
 }
 
-export async function loadElevationGrid(columns = 180, rows = 220) {
+async function loadAgencyLidarGrid(columns = 300, rows = 360) {
+  const params = new URLSearchParams({
+    bbox: `${BOUNDS.west},${BOUNDS.south},${BOUNDS.east},${BOUNDS.north}`,
+    bboxSR: '4326', imageSR: '4326', size: '1300,1560', format: 'tiff',
+    pixelType: 'F32', interpolation: 'RSP_Bilinear', f: 'image'
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 18000);
+  let response;
+  try {
+    response = await fetch(`https://environment.data.gov.uk/image/rest/services/EA/LIDAR_Composite_DTM_2022_1m/ImageServer/exportImage?${params}`, { signal: controller.signal });
+  } finally { clearTimeout(timeout); }
+  if (!response.ok) throw new Error(`EA LiDAR 请求失败（HTTP ${response.status}）`);
+  const { fromArrayBuffer } = await import('geotiff');
+  const tiff = await fromArrayBuffer(await response.arrayBuffer());
+  const image = await tiff.getImage();
+  const source = await image.readRasters({ interleave: true });
+  const sw = image.getWidth(), sh = image.getHeight(), nodata = image.getGDALNoData();
+  const values = new Float32Array(columns * rows); let lo = Infinity, hi = -Infinity;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < columns; x++) {
+    const sx = Math.min(sw - 1, Math.round(x / (columns - 1) * (sw - 1)));
+    const sy = Math.min(sh - 1, Math.round(y / (rows - 1) * (sh - 1)));
+    let h = source[sy * sw + sx];
+    if (!Number.isFinite(h) || h === nodata || h < -1000 || h > 10000) {
+      let found = false;
+      for (let r = 1; r <= 6 && !found; r++) for (let dy = -r; dy <= r && !found; dy++) for (let dx = -r; dx <= r && !found; dx++) {
+        const xx = Math.max(0, Math.min(sw - 1, sx + dx)), yy = Math.max(0, Math.min(sh - 1, sy + dy));
+        const candidate = source[yy * sw + xx];
+        if (Number.isFinite(candidate) && candidate !== nodata && candidate > -1000 && candidate < 10000) { h = candidate; found = true; }
+      }
+      if (!found) throw new Error('EA LiDAR returned substantial NoData coverage.');
+    }
+    values[y * columns + x] = h; lo = Math.min(lo, h); hi = Math.max(hi, h);
+  }
+  if (hi - lo < 2) throw new Error('EA LiDAR returned an invalid height range.');
+  return { values, columns, rows, min: lo, max: hi, interval: 2, sourceShort: 'EA LiDAR 1 m', sourceNote: 'Environment Agency LIDAR Composite DTM · 2022 · 1 m' };
+}
+
+async function loadTerrariumGrid(columns = 180, rows = 220) {
   const tiles = await loadTerrariumTiles();
   const sample = createSampler(tiles);
   const values = new Float32Array(columns * rows);
@@ -72,7 +110,15 @@ export async function loadElevationGrid(columns = 180, rows = 220) {
     values[y * columns + x] = h;
     lo = Math.min(lo, h); hi = Math.max(hi, h);
   }
-  return { values, columns, rows, min: lo, max: hi, sample };
+  return { values, columns, rows, min: lo, max: hi, interval: 10, sourceShort: 'Terrain Tiles ≈30 m', sourceNote: 'AWS Terrain Tiles · global DEM approximately 30 m locally', sample };
+}
+
+export async function loadElevationGrid() {
+  try { return await loadAgencyLidarGrid(); }
+  catch (error) {
+    console.warn('EA LiDAR unavailable; using lower-resolution public terrain tiles.', error);
+    return loadTerrariumGrid();
+  }
 }
 
 export function heightAt(grid, x, z) {
