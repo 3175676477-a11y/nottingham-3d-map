@@ -20,3 +20,9 @@ The app first requests the Environment Agency's 2022 LIDAR Composite DTM at 1 m 
 Road geometry comes from the Overpass API for OpenStreetMap. Road names and classifications are provided by OpenStreetMap contributors under the ODbL. Contours are interpolated from the loaded elevation grid; vertical relief is exaggerated 3× for legibility. The coverage is a University Park overview including nearby surroundings, not a navigation or engineering survey product. Public APIs may rate-limit or be unavailable; the app reports failures instead of inventing terrain or roads.
 
 Sources: [Environment Agency LIDAR](https://environment.data.gov.uk/DefraDataDownload/?Mode=survey), [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/), and [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).
+
+## Sun–Earth–Moon observatory
+
+Open `/astronomy.html` from the Vite server (for example `http://localhost:5173/astronomy.html`). Click a point on the globe to select the observer. The page derives the point's IANA timezone, then updates its civil date and time, estimated sunrise/sunset and daylight duration, Sun altitude, Moon phase and illumination, Moon altitude, azimuth, and compass direction. The timeline can be paused or advanced at accelerated rates. The globe uses Natural Earth land outlines bundled locally, so it does not require a map API.
+
+Solar altitude and sunrise estimates use NOAA-style solar equations with the conventional −0.833° sunrise/sunset horizon. Lunar coordinates use a low-precision orbital-elements model suitable for an educational visualization; phase/azimuth are approximate and are not an ephemeris for navigation. Orbital distances and body sizes are strongly compressed for visibility.
