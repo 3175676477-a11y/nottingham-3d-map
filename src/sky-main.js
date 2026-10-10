@@ -1,7 +1,9 @@
+import { installReleaseNavigation } from './release-navigation.js';
 import * as THREE from 'three';
 import { DateTime } from 'luxon';
 import tzlookup from 'tz-lookup';
-import { daylight, localPosition, moonCoordinates, skyState, sunCoordinates } from './astronomy.js';
+import { daylight, skyState } from './astronomy.js';
+import { horizontalPosition, moonPassAt, sampleTrack, splitVisibleTrack } from './sky-trajectories.js';
 import { createMoonTexture } from './globe-texture.js';
 import './sky.css';
 import './sky-hud.css';
@@ -10,7 +12,7 @@ const app = document.querySelector('#sky-app');
 app.innerHTML = `
   <main class="sky-observatory">
     <header class="sky-header">
-      <a class="return-link" href="/astronomy.html">← 返回地球视图</a>
+      <a class="return-link" href="./astronomy.html">← 返回地球视图</a>
       <div class="sky-title"><span>GROUND OBSERVER / 地面观测者</span><b>仰望天空</b></div>
       <div class="view-tag" id="view-heading">拖动视角环顾天空</div>
     </header>
@@ -22,7 +24,7 @@ app.innerHTML = `
       <div class="moon-card"><span>月相</span><div class="moon-phase-row"><canvas id="phase-mini" width="88" height="88" aria-label="当前月相图示"></canvas><div><b id="phase-name">--</b><small><span id="illumination">--</span> 照明 · 月龄 <span id="moon-age">--</span> 天</small></div></div></div>
     </section>
     <section class="dome-stage" aria-label="站在地面仰望太阳和月球">
-      <div class="dome-caption">GROUND-LEVEL SKY <span>太阳与月球当日轨迹</span></div>
+      <div class="dome-caption">GROUND-LEVEL SKY <span>太阳当日轨迹 · 月球完整升落轨迹</span></div>
       <div class="dome-wrap" id="dome-viewport"><div class="horizon-markers" aria-label="地平线方位"><span id="bearing-n">N · 北</span><span id="bearing-e">E · 东</span><span id="bearing-s">S · 南</span><span id="bearing-w">W · 西</span></div></div>
       <div class="dome-legend"><span><i class="moon-key"></i>月球轨迹与月相</span><span><i class="sun-key"></i>太阳轨迹</span><span><i class="cardinal-key"></i>方向标</span></div>
     </section>
@@ -34,7 +36,7 @@ app.innerHTML = `
       <div class="moon-position"><b id="moon-horizon">--</b><span id="moon-status">--</span></div>
       <div class="position-pair"><div><span>高度 ALT</span><b id="moon-altitude">--°</b></div><div><span>方位 AZ</span><b id="moon-azimuth">--°</b></div></div>
       <div class="readout-rule"></div>
-      <p class="track-note">当前视线固定在地面观测点。拖动画面左右环顾、上下抬头或低头；轨迹显示所选当地日期中升到地平线以上的部分。</p>
+      <p class="track-note">当前视线固定在地面观测点。拖动画面左右环顾、上下抬头或低头；太阳显示当地当日轨迹；月球显示一次完整月出至月落的轨迹，跨午夜保持连续，月落后才切换到下一次。实线为已经过的部分，虚线为将经过的部分。</p>
       <p class="model-note">天体尺寸经过夸大，轨道位置及月相为教学用途近似计算。</p>
     </aside>
     <section class="sky-timeline">
@@ -48,6 +50,8 @@ app.innerHTML = `
     <footer class="sky-footer">地平线下方的天体不会显示 · 时间控制可观察月球在天空中的移动</footer>
   </main>`;
 
+installReleaseNavigation('.sky-title span');
+
 const params = new URLSearchParams(location.search);
 const parsedLat = Number(params.get('lat'));
 const parsedLon = Number(params.get('lon'));
@@ -57,7 +61,7 @@ let zone = 'Europe/London';
 try { zone = tzlookup(latitude, longitude); } catch { zone = 'UTC'; }
 const parsedTime = new Date(params.get('time') || Date.now());
 let currentTime = Number.isNaN(parsedTime.getTime()) ? new Date() : parsedTime;
-let playing = false, previousFrame = 0, lastInputSync = 0, trajectoryKey = '', trajectory = [], renderedTimeKey = '';
+let playing = false, previousFrame = 0, lastInputSync = 0, trajectoryKey = '', sunTrajectory = [], moonTrajectory = [], moonPass = null, renderedTimeKey = '';
 const timeInput = document.querySelector('#sky-time');
 const playButton = document.querySelector('#sky-play');
 const speedInput = document.querySelector('#sky-speed');
@@ -169,37 +173,29 @@ const bearingElements=[[0,document.querySelector('#bearing-n')],[90,document.que
 function updateBearings(){for(const [az,el] of bearingElements){const p=skyVector(az,0,240);p.y=7;p.project(camera);const x=(p.x*.5+.5)*viewport.clientWidth,y=(-p.y*.5+.5)*viewport.clientHeight,visible=p.z<1&&x>-20&&x<viewport.clientWidth+20&&y>-15&&y<viewport.clientHeight+15;el.style.display=visible?'block':'none';el.style.left=`${x}px`;el.style.top=`${y}px`;}}
 
 function rebuildTrajectory(dateTime) {
-  const key=`${dateTime.toISODate()}|${latitude.toFixed(4)}|${longitude.toFixed(4)}`;
-  if(key===trajectoryKey)return;
-  trajectoryKey=key;trajectory=[];
-  const start=dateTime.startOf('day').toUTC().toMillis(),end=dateTime.plus({days:1}).startOf('day').toUTC().toMillis(),step=10*60*1000;
-  for(let ms=start;ms<end;ms+=step){const date=new Date(ms),sunPos=sunCoordinates(date),moonPos=moonCoordinates(date);trajectory.push({ms,sun:localPosition(sunPos.ra,sunPos.dec,date,latitude,longitude),moon:localPosition(moonPos.ra,moonPos.dec,date,latitude,longitude)});}
-  const date=new Date(end),sunPos=sunCoordinates(date),moonPos=moonCoordinates(date);trajectory.push({ms:end,sun:localPosition(sunPos.ra,sunPos.dec,date,latitude,longitude),moon:localPosition(moonPos.ra,moonPos.dec,date,latitude,longitude)});
+  const key = `${dateTime.toISODate()}|${latitude}|${longitude}`;
+  if (key !== trajectoryKey) {
+    trajectoryKey = key;
+    sunTrajectory = sampleTrack('sun', dateTime.startOf('day').toMillis(), dateTime.plus({days:1}).startOf('day').toMillis(), latitude, longitude);
+  }
+  const now = currentTime.getTime();
+  if (!moonPass || now < moonPass.validFrom || now >= moonPass.end) {
+    moonPass = moonPassAt(now, latitude, longitude);
+    moonTrajectory = sampleTrack('moon', moonPass.start, moonPass.end, latitude, longitude);
+  }
 }
 function updateTracks(now) {
-  const key=`${trajectoryKey}|${Math.floor(now/600000)}`;if(key===renderedTimeKey)return;renderedTimeKey=key;
-  for(const body of ['sun','moon'])for(const when of ['Past','Future']){
-    // Include the exact current position in both halves so the solid and
-    // dashed tracks meet cleanly instead of leaving a gap at a sample boundary.
-    const current=skyState(new Date(now),latitude,longitude)[body];
-    const samples=trajectory.filter(p=>when==='Past'?p.ms<now:p.ms>now);
-    samples.push({ms:now,[body]:current});samples.sort((a,b)=>a.ms-b.ms);
-    const points=[];
-    const positionAt=(a,b,f)=>{
-      let delta=((b.azimuth-a.azimuth+540)%360)-180;
-      return {azimuth:(a.azimuth+delta*f+360)%360,altitude:a.altitude+(b.altitude-a.altitude)*f};
-    };
-    // Clip segments precisely to the horizon. This keeps a trajectory
-    // continuous while preventing lines from cutting below the visible dome.
-    for(let i=1;i<samples.length;i++){
-      const a=samples[i-1],b=samples[i],pa=a[body],pb=b[body];
-      if(pa.altitude<0&&pb.altitude<0)continue;
-      let start=pa,end=pb;
-      if(pa.altitude<0)start=positionAt(pa,pb,-pa.altitude/(pb.altitude-pa.altitude));
-      if(pb.altitude<0)end=positionAt(pa,pb,-pa.altitude/(pb.altitude-pa.altitude));
-      points.push(skyVector(start.azimuth,Math.max(0,start.altitude)),skyVector(end.azimuth,Math.max(0,end.altitude)));
+  const key = `${trajectoryKey}|${moonPass.start}|${moonPass.end}|${Math.floor(now / 60000)}`;
+  if (key === renderedTimeKey) return;
+  renderedTimeKey = key;
+  for (const body of ['sun', 'moon']) {
+    const split = splitVisibleTrack(body === 'sun' ? sunTrajectory : moonTrajectory, now, horizontalPosition(body, now, latitude, longitude));
+    for (const when of ['Past', 'Future']) {
+      const points = split[when.toLowerCase()].map(p => skyVector(p.azimuth, p.altitude));
+      const line = trackLines[body + when];
+      line.geometry.dispose(); line.geometry = new THREE.BufferGeometry().setFromPoints(points);
+      if (line.material.isLineDashedMaterial) line.computeLineDistances();
     }
-    const line=trackLines[body+when];line.geometry.dispose();line.geometry=new THREE.BufferGeometry().setFromPoints(points);if(trackMaterials[body+when].isLineDashedMaterial)line.computeLineDistances();
   }
 }
 
@@ -242,7 +238,7 @@ function frame(now){requestAnimationFrame(frame);if(playing){currentTime=new Dat
   const local=DateTime.fromJSDate(currentTime).setZone(zone);rebuildTrajectory(local);const sky=skyState(currentTime,latitude,longitude),day=daylight(currentTime,latitude,longitude,zone,DateTime);updateReadout(sky,day,local);updateTracks(currentTime.getTime());updateSkyColors(sky.sun.altitude);
   const sunDirection=skyVector(sky.sun.azimuth,sky.sun.altitude,1),moonDirection=skyVector(sky.moon.azimuth,sky.moon.altitude,1);const sunPosition=sunDirection.clone().multiplyScalar(220),moonPosition=moonDirection.clone().multiplyScalar(220);
   sun.position.copy(sunPosition);sun.visible=sky.sun.altitude>-.5;sunGlow.position.copy(sunPosition);sunGlow.visible=sun.visible;sunLabel.position.copy(sunPosition).add(new THREE.Vector3(0,12,0));sunLabel.visible=sun.visible;
-  moon.position.copy(moonPosition);moon.visible=sky.moon.altitude>-.5;moonGlow.position.copy(moonPosition);moonGlow.visible=moon.visible;moonLabel.position.copy(moonPosition).add(new THREE.Vector3(0,10,0));moonLabel.visible=moon.visible;
+  moon.position.copy(moonPosition);moon.visible=sky.moon.altitude>=0;moonGlow.position.copy(moonPosition);moonGlow.visible=moon.visible;moonLabel.position.copy(moonPosition).add(new THREE.Vector3(0,10,0));moonLabel.visible=moon.visible;
   sunLight.position.copy(sunDirection).multiplyScalar(300);sunLight.target.position.set(0,0,0);sunLight.target.updateMatrixWorld();
   updateBearings();renderer.render(scene,camera);
 }
