@@ -110,7 +110,7 @@ function updateReadout(){
 
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();let pointerDown=null;
 renderer.domElement.addEventListener('pointerdown',e=>{pointerDown={x:e.clientX,y:e.clientY};});
-renderer.domElement.addEventListener('click',e=>{if(!pointerDown||Math.hypot(e.clientX-pointerDown.x,e.clientY-pointerDown.y)>5)return;pointerDown=null;const rect=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,1-(e.clientY-rect.top)/rect.height*2);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObject(body.earthSurface)[0];if(!hit)return;const local=body.earthSpin.worldToLocal(hit.point.clone());const lat=Math.asin(THREE.MathUtils.clamp(local.y/earthRadius,-1,1))*180/Math.PI;const lon=Math.atan2(local.x,local.z)*180/Math.PI;setLocation(lat,lon);});
+renderer.domElement.addEventListener('click',e=>{if(!pointerDown||Math.hypot(e.clientX-pointerDown.x,e.clientY-pointerDown.y)>5)return;pointerDown=null;const rect=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,1-(e.clientY-rect.top)/rect.height*2);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObject(body.earthSurface)[0];if(!hit)return;const local=body.earthSpin.worldToLocal(hit.point.clone());const lat=Math.asin(THREE.MathUtils.clamp(local.y/earthRadius,-1,1))*180/Math.PI;const lon=Math.atan2(local.x,local.z)*180/Math.PI;const skyUrl=new URL('/sky.html',location.href);skyUrl.searchParams.set('lat',String(lat));skyUrl.searchParams.set('lon',String(lon));skyUrl.searchParams.set('time',currentTime.toISOString());window.location.assign(skyUrl);});
 
 function sceneDirToVector(d){return new THREE.Vector3(d.x,d.y,d.z).normalize();}
 const axis=new THREE.Vector3(0,1,0);const cameraLabels=[['sun-label',body.sun],['earth-label',body.earthCarrier],['moon-label',body.moon]];
@@ -118,7 +118,9 @@ function updateLabel(id,obj){const el=document.getElementById(id),point=obj.getW
 function render(now){requestAnimationFrame(render);const dt=Math.min((now-(render.last||now))/1000,.05);render.last=now;if(playing)currentTime=new Date(currentTime.getTime()+dt*Number(speedSelect.value)*1000);const directions=sceneDirections(currentTime);const earthDir=sceneDirToVector(directions.earthFromSun);body.earthCarrier.position.copy(earthDir).multiplyScalar(earthOrbitRadius);body.earthSpin.rotation.y=(directions.siderealSpin+90)*Math.PI/180;
   const moonDir=sceneDirToVector(directions.moonFromEarth);body.moon.position.copy(body.earthCarrier.position).add(moonDir.multiplyScalar(moonOrbitRadius));body.moon.rotation.set(0,0,0);const facingEarth=body.earthCarrier.position.clone().sub(body.moon.position).normalize();body.moonSurface.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),facingEarth);
   body.moonOrbit.position.copy(body.earthCarrier.position);body.moonOrbit.quaternion.setFromUnitVectors(axis,sceneDirToVector(directions.moonOrbitNormal));
-  const sunlightFrom=earthDir.clone().multiplyScalar(200);sunlight.position.copy(sunlightFrom);sunlight.target.position.set(0,0,0);sunlight.target.updateMatrixWorld();
+// DirectionalLight's position points toward its source. Put that source on
+  // Earth's sunward side so the lit hemisphere faces the Sun.
+  const sunlightFrom=earthDir.clone().multiplyScalar(-200);sunlight.position.copy(sunlightFrom);sunlight.target.position.set(0,0,0);sunlight.target.updateMatrixWorld();
   const lat=latitude*Math.PI/180,lon=longitude*Math.PI/180;body.marker.position.set(earthRadius*Math.cos(lat)*Math.sin(lon),earthRadius*Math.sin(lat),earthRadius*Math.cos(lat)*Math.cos(lon));body.marker.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),body.marker.position.clone().normalize());
   updateReadout();orbitControls.update();renderer.render(scene,camera);cameraLabels.forEach(([id,obj])=>updateLabel(id,obj));}
 requestAnimationFrame(render);
