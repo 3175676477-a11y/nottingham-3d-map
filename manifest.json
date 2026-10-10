@@ -1,7 +1,14 @@
 {
   "schema": 1,
-  "latest": "v-c2d4e47fb289",
+  "latest": "v-9e150e80e1a0",
   "versions": [
+    {
+      "id": "v-9e150e80e1a0",
+      "sourceCommit": "9e150e80e1a06270c8deb5e69ba67613466fede1",
+      "date": "2026-10-10T23:21:11Z",
+      "label": "新增月面仰望地球与太阳；点击天体标识切换旋转中心",
+      "builtAt": "2026-10-10T23:21:19.119Z"
+    },
     {
       "id": "v-c2d4e47fb289",
       "sourceCommit": "c2d4e47fb28939a09427ef00c32981a5d214c219",
