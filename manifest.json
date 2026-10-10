@@ -1,7 +1,14 @@
 {
   "schema": 1,
-  "latest": "v-40a7d35b6d8b",
+  "latest": "v-c2d4e47fb289",
   "versions": [
+    {
+      "id": "v-c2d4e47fb289",
+      "sourceCommit": "c2d4e47fb28939a09427ef00c32981a5d214c219",
+      "date": "2026-10-10T23:01:17Z",
+      "label": "月落后切换轨迹；新增 Mac 一键入口与云端历史版本",
+      "builtAt": "2026-10-10T23:01:26.091Z"
+    },
     {
       "id": "v-40a7d35b6d8b",
       "sourceCommit": "40a7d35b6d8b2418d38524a5bd8e9f140729dd45",
