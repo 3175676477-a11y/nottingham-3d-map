@@ -1,7 +1,14 @@
 {
   "schema": 1,
-  "latest": "v-9e150e80e1a0",
+  "latest": "v-d1039c359eb7",
   "versions": [
+    {
+      "id": "v-d1039c359eb7",
+      "sourceCommit": "d1039c359eb7a39da07480cef83df45554d88559",
+      "date": "2026-10-11T13:10:08Z",
+      "label": "新增八大行星绕日公转总览与行星跟随视角",
+      "builtAt": "2026-10-11T13:10:16.270Z"
+    },
     {
       "id": "v-9e150e80e1a0",
       "sourceCommit": "9e150e80e1a06270c8deb5e69ba67613466fede1",
