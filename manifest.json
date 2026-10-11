@@ -1,7 +1,14 @@
 {
   "schema": 1,
-  "latest": "v-d1039c359eb7",
+  "latest": "v-d00fdaba898d",
   "versions": [
+    {
+      "id": "v-d00fdaba898d",
+      "sourceCommit": "d00fdaba898d6c5491025131e85c78ae4063650b",
+      "date": "2026-10-11T13:24:36Z",
+      "label": "新增按仓库整理的访达最新与历史版本入口",
+      "builtAt": "2026-10-11T13:24:44.832Z"
+    },
     {
       "id": "v-d1039c359eb7",
       "sourceCommit": "d1039c359eb7a39da07480cef83df45554d88559",
