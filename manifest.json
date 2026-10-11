@@ -1,7 +1,14 @@
 {
   "schema": 1,
-  "latest": "v-d00fdaba898d",
+  "latest": "v-43e2907865ea",
   "versions": [
+    {
+      "id": "v-43e2907865ea",
+      "sourceCommit": "43e2907865ea4e9334fc6286aa54eb328ab0d4a2",
+      "date": "2026-10-11T13:46:56Z",
+      "label": "新增 GitHub 多仓库自动同步到文稿 codex 的后台服务",
+      "builtAt": "2026-10-11T13:47:04.948Z"
+    },
     {
       "id": "v-d00fdaba898d",
       "sourceCommit": "d00fdaba898d6c5491025131e85c78ae4063650b",
