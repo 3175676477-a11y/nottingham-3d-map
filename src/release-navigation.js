@@ -11,7 +11,7 @@ export function installReleaseNavigation(selector) {
   latest.textContent = '打开最新版'; latest.style.color = 'inherit';
   const finder = document.createElement('a');
   finder.href = new URL('./finder.html', location.href).href;
-  finder.textContent = '访达文件夹'; finder.style.color = 'inherit';
+  finder.textContent = '自动归档'; finder.style.color = 'inherit';
   slot.replaceChildren(document.createTextNode(`${version} · `), history, document.createTextNode(' · '), latest, document.createTextNode(' · '), finder);
   if (['localhost', '127.0.0.1'].includes(location.hostname)) {
     fetch('/api/status', { cache: 'no-store' }).then(r => r.json()).then(status => {

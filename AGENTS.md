@@ -20,13 +20,26 @@ specific snapshot. Further app requests should be delivered to this same link.
 Installer changes require a one-time reinstall on the Mac. Ordinary app updates
 do not require rerunning installation or copying terminal commands.
 
-# Finder organization
+# Automatic Finder delivery
 
-The user organizes generated web tasks in `~/Documents/Codex任务/<repository>/`.
-Each repository folder contains `最新版本.webloc` and `历史版本.webloc`,
-pointing at that repository's stable latest/history routes. This repository
-uses port 43173; do not point other repositories at its service or archive.
-Keep these links stable, continue publishing immutable cloud snapshots, and
-retain the existing desktop links for compatibility. The downloadable Finder
-folder only contains shortcuts; it relies on the already installed Mac service.
-Do not require users to reinstall the service for shortcut organization.
+The user manually creates public GitHub repositories under `3175676477-a11y`.
+After Codex finishes and publishes a webpage, a Mac login service automatically
+creates `~/Documents/codex/<repository>/最新版本.webloc` and `历史版本.webloc`.
+Never ask the user to manually create per-repository folders or repeatedly run
+dev servers. An initial Mac service upgrade is required to enable discovery;
+cloud-side work alone cannot install it on the user's Mac.
+
+This repository keeps its existing `solar-atlas-releases` archive and publisher.
+Other web repositories use `codex-releases`, immutable `releases/v-<12-char-sha>`
+builds and a manifest with latest, entry and versions. Read
+`docs/automatic-delivery.md` for the contract and use the standalone
+`scripts/publish-task.mjs` after completing tests, build and source commits.
+The hub uses separate `/projects/<owner>/<repository>/` routes on port 43173.
+Do not point another repository at this project's snapshots. Keep all old builds.
+
+Finder files are generated directly in Documents, never Downloads. Preserve
+existing codex folders and unrelated files; only update the two managed links.
+The service is for built static web apps. Do not silently run downloaded source
+code, install dependencies, or claim it deploys a backend. A different Codex
+cloud environment also needs the publishing contract in its startup/custom
+instructions; the Mac service cannot set those instructions remotely.
