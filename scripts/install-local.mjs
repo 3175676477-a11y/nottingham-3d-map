@@ -3,10 +3,11 @@ import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { installFinderShortcuts } from './finder-shortcuts.mjs';
 import { APP_DIRECTORY, APP_ID, DEFAULT_PORT } from './local-server.mjs';
 
 if (process.platform !== 'darwin') {
-  console.error('此安装程序用于 Mac。它会安装一个本地后台服务，并在桌面创建两个网页链接。');
+  console.error('此安装程序用于 Mac。它会安装一个本地后台服务，并在“文稿/Codex任务/仓库名称”及桌面创建网页链接。');
   process.exit(1);
 }
 const home = homedir(), label = 'com.solaratlas.local', domain = `gui/${process.getuid()}`;
@@ -23,6 +24,7 @@ if(running) {
   let data;try { data=await running.json(); } catch {}
   if(data?.app!==APP_ID){console.error(`端口 ${DEFAULT_PORT} 已被其他程序占用。安装已停止。`);process.exit(1);}
 }
+const finderDirectory = await installFinderShortcuts(home);
 const runtime = resolve(runtimeDir,'local-server.mjs');
 try { execFileSync('launchctl',['bootout',`${domain}/${label}`],{stdio:'ignore'}); } catch {}
 await copyFile(fileURLToPath(new URL('./local-server.mjs',import.meta.url)),runtime);
@@ -50,6 +52,8 @@ try {
   }
   if(!ready)throw new Error(`后台服务未启动，请查看 ${resolve(logs,'error.log')}`);
   execFileSync('open',[`http://127.0.0.1:${DEFAULT_PORT}/`]);
-  console.log('安装完成。以后双击桌面的“打开日地月”即可自动检查并打开最新版本。');
+  execFileSync('open',[finderDirectory]);
+  console.log(`安装完成。访达目录：${finderDirectory}`);
+  console.log('双击“最新版本”自动检查更新；双击“历史版本”查看云端归档。');
   console.log('“日地月历史版本”可打开以前的版本。服务在登录 Mac 时自动运行，无需保留终端窗口。');
 } catch(error) { console.error(error.message);process.exitCode=1; }
